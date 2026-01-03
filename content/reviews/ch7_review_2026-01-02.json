@@ -1,0 +1,44 @@
+{
+  "chapter": 7,
+  "input_path": "/Users/callii/Documents/agenticAI/docs/ch7.md",
+  "generated_on": "2026-01-02",
+  "providers": [
+    {
+      "provider": "openai",
+      "model": "gpt-4o",
+      "ok": true,
+      "error": null,
+      "review": {
+        "summary": "이 교재는 멀티에이전트 시스템의 개요와 선택 전략을 다루며, 주요 아키텍처 패턴과 프레임워크를 비교한다. 또한, Human-in-the-loop 설계 원칙을 설명하고 단일 및 멀티에이전트 구현을 통해 트레이드오프를 분석한다. 최신 기술과 도구를 반영하고 있으며, 실습 코드 참조 형식이 잘 제공되어 있다.",
+        "critical_issues": [],
+        "major_issues": [],
+        "minor_suggestions": [
+          {
+            "title": "긴 코드 블록",
+            "detail": "단일 에이전트 구현과 멀티에이전트 구현 코드 블록이 3~5줄을 넘는다.",
+            "location_hint": "7.5 실습: 단일 에이전트 vs 멀티에이전트 비교"
+          }
+        ]
+      }
+    },
+    {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-20250514",
+      "ok": false,
+      "error": "anthropic 응답이 JSON이 아닙니다: Expecting value: line 1 column 1 (char 0)",
+      "review": null
+    },
+    {
+      "provider": "grok",
+      "model": "grok-4-1-fast-reasoning",
+      "ok": true,
+      "error": null,
+      "review": {
+        "summary": "제7장은 멀티에이전트 시스템의 개요, 아키텍처 패턴, 주요 프레임워크(CrewAI, AutoGen, LangGraph) 비교, Human-in-the-loop 설계, 그리고 단일 vs 멀티에이전트 실습을 다루며 내용이 정확하고 사실적이다. 모든 기술 설명, 코드 스니펫, 실행 결과는 실제 작동하며 플랫폼 독립적이다. 참고문헌은 실제 존재하는 공식 문서와 블로그로 최신(2024-2025)하며, 2026년 기준 모범 사례를 반영한다.",
+        "critical_issues": [],
+        "major_issues": [],
+        "minor_suggestions": []
+      }
+    }
+  ]
+}

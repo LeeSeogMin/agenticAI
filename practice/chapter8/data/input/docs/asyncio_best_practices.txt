@@ -1,0 +1,79 @@
+# Python asyncio 모범 사례
+
+## 블로킹 코드 피하기
+
+비동기 함수 내에서 블로킹 코드를 실행하면 전체 이벤트 루프가 차단된다. time.sleep() 대신 asyncio.sleep()을 사용해야 한다.
+
+```python
+# 잘못된 예
+async def bad_sleep():
+    time.sleep(1)  # 이벤트 루프 차단!
+
+# 올바른 예
+async def good_sleep():
+    await asyncio.sleep(1)  # 다른 태스크 실행 가능
+```
+
+CPU 바운드 작업은 asyncio.to_thread() 또는 ProcessPoolExecutor를 사용하여 별도 스레드/프로세스에서 실행해야 한다.
+
+## 동시성 제한
+
+너무 많은 동시 연결은 시스템 리소스를 고갈시킬 수 있다. asyncio.Semaphore를 사용하여 동시 실행 수를 제한한다.
+
+```python
+semaphore = asyncio.Semaphore(10)  # 최대 10개 동시 실행
+
+async def limited_fetch(url):
+    async with semaphore:
+        return await fetch_data(url)
+```
+
+세마포어는 컨텍스트 매니저로 사용할 수 있어 acquire/release를 자동으로 처리한다.
+
+## 에러 핸들링
+
+각 태스크에서 발생하는 예외를 적절히 처리해야 한다. asyncio.gather()에서 return_exceptions=True를 사용하면 예외를 결과에 포함시킬 수 있다.
+
+```python
+results = await asyncio.gather(
+    task1(),
+    task2(),
+    task3(),
+    return_exceptions=True
+)
+
+for result in results:
+    if isinstance(result, Exception):
+        print(f"에러 발생: {result}")
+    else:
+        print(f"결과: {result}")
+```
+
+개별 태스크의 예외가 다른 태스크에 영향을 주지 않도록 격리하는 것이 중요하다.
+
+## 리소스 정리
+
+비동기 컨텍스트 매니저(async with)를 사용하여 리소스를 자동으로 정리한다. aiohttp, aiofiles 등의 라이브러리는 비동기 컨텍스트 매니저를 지원한다.
+
+```python
+async def fetch_with_cleanup():
+    async with aiohttp.ClientSession() as session:
+        async with session.get("https://api.example.com") as response:
+            return await response.json()
+```
+
+프로그램 종료 시 모든 태스크가 완료되었는지 확인해야 한다. 미완료 태스크는 경고 메시지를 발생시킨다.
+
+## 디버깅
+
+asyncio.get_running_loop().set_debug(True)를 사용하여 디버그 모드를 활성화할 수 있다. 느린 콜백, 취소되지 않은 태스크 등을 감지한다.
+
+```python
+import asyncio
+
+loop = asyncio.get_event_loop()
+loop.set_debug(True)
+loop.run_until_complete(main())
+```
+
+PYTHONASYNCIODEBUG=1 환경 변수로도 디버그 모드를 활성화할 수 있다.
