@@ -19,7 +19,7 @@
 
 AI 코딩 어시스턴트가 생성하는 코드에는 보이지 않는 가정이 숨어 있다. 예를 들어, GitHub Copilot이 pandas를 사용하는 코드를 제안할 때, 어떤 버전의 pandas를 기준으로 작성했는지 명시하지 않는다. pandas 1.x에서 자주 사용하던 `df.append()` 메서드는 1.4.0 버전에서 deprecated 되었고, 2.0 버전에서 완전히 제거되었다. AI가 학습한 시점의 코드 패턴이 현재 설치된 라이브러리 버전과 맞지 않으면, 동일한 코드도 전혀 다른 결과를 낳는다.
 
-AI 모델은 학습 데이터의 시점에 고정된 API 사용 패턴을 학습한다. ChatGPT-4의 경우 2021년 9월까지의 데이터를 기준으로 학습되었고, GitHub Copilot은 GitHub의 공개 코드를 학습했지만 최신 라이브러리 변경사항을 실시간으로 반영하지는 못한다. 따라서 AI가 제안한 코드가 "옛날 방식"일 가능성이 있으며, 이는 라이브러리 버전이 업그레이드될수록 문제가 된다.
+AI 모델은 학습 데이터의 시점에 고정된 API 사용 패턴을 학습한다. 대규모 언어 모델은 학습 데이터 수집 시점(knowledge cutoff) 이후의 변경사항을 반영하지 못하며, GitHub Copilot 역시 공개 코드를 학습했지만 최신 라이브러리 변경사항을 실시간으로 반영하지는 못한다. 따라서 AI가 제안한 코드가 "옛날 방식"일 가능성이 있으며, 이는 라이브러리 버전이 업그레이드될수록 문제가 된다.
 
 운영체제 차이도 문제가 된다. Windows에서는 경로 구분자로 백슬래시(`\`)를 사용하고, macOS와 Linux에서는 슬래시(`/`)를 사용한다. AI가 특정 플랫폼을 기준으로 경로를 하드코딩한 코드를 생성하면, 다른 플랫폼에서는 "파일을 찾을 수 없습니다"라는 오류가 발생한다. AI는 학습 데이터에서 특정 플랫폼의 코드를 더 많이 접했을 수 있으므로, 크로스 플랫폼 호환성을 자동으로 보장하지 않는다.
 
@@ -827,8 +827,6 @@ def run_task(paths):
     return {"rows": len(df), "csv_path": str(csv_file)}
 ```
 
-_전체 코드는 practice/chapter2/code/2-5-example-csv.py 참고_
-
 이 예시에서는 pandas를 사용하므로, `requirements.txt`에 `pandas`를 추가해야 한다. `encoding="utf-8-sig"`는 Excel에서 한글이 깨지지 않도록 BOM(Byte Order Mark)을 포함한다.
 
 **예시 2: 웹 API 호출 및 결과 저장**
@@ -846,8 +844,6 @@ def run_task(paths):
         "stars": data["stargazers_count"]
     }
 ```
-
-_전체 코드는 practice/chapter2/code/2-5-example-api.py 참고_
 
 이 예시에서는 `requests` 라이브러리가 필요하므로, `requirements.txt`에 추가한다. `response.raise_for_status()`는 HTTP 오류 발생 시 예외를 발생시킨다.
 
