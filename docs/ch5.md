@@ -1,12 +1,11 @@
-# 제5장: LangChain과 MCP의 연결 — 도구를 쓰는 에이전트
+# 제5장: LangChain과 도구 호출의 진화 — 도구를 쓰는 에이전트
 
 ## 학습 목표
 
 1. LangChain 에이전트가 도구를 선택하고 호출하는 흐름을 설명한다.
-2. 툴 선택 실패를 줄이기 위한 프롬프트 구조와 도구 설명 작성 원칙을 적용한다.
-3. 에이전트 실행 과정을 로그와 트레이스로 추적 가능하게 만든다.
-4. 도구 입력을 검증하여 잘못된 호출을 사전에 차단한다.
-5. 실습 산출물(에이전트 실행 로그, 최종 결과 JSON)을 저장하고 해석한다.
+2. 구조화된 출력(Structured Outputs)으로 도구 호출의 신뢰성을 높이는 방법을 이해한다.
+3. Tool Search 패턴으로 대규모 도구 라이브러리를 효율적으로 관리하는 방법을 적용한다.
+4. OpenAI Agents SDK의 핵심 프리미티브와 LangChain과의 차이를 설명한다.
 
 ## 선수 지식
 
@@ -96,7 +95,77 @@ _전체 코드는 practice/chapter5/code/5-5-langchain-agent.py 참고_
 
 ---
 
-## 5.5 실습: OpenAI + LangChain으로 도구를 쓰는 에이전트 만들기
+## 5.5 구조화된 출력: JSON 스키마 보장으로 신뢰성 향상
+
+LLM이 도구를 호출할 때, 입력 인자가 올바른 JSON 형식을 따르지 않으면 파싱 에러가 발생한다. 5.4절의 Pydantic 검증은 파싱된 후의 값을 검증하지만, 구조화된 출력(Structured Outputs)은 LLM이 처음부터 유효한 JSON만 생성하도록 강제한다.
+
+### 동작 원리: 제한 디코딩
+
+OpenAI는 2024년 8월 gpt-4o 모델과 함께 Structured Outputs를 발표했다. 핵심 기술은 제한 디코딩(constrained decoding)이다. JSON Schema를 문맥 자유 문법(Context-Free Grammar)으로 변환한 뒤, 매 토큰 생성 시 문법적으로 유효한 토큰만 샘플링할 수 있도록 마스킹한다. 이를 통해 복잡한 JSON Schema에 대해 100% 준수율을 달성했다. 참고로 이전 모델(gpt-4-0613)의 스키마 준수율은 40% 미만이었다.
+
+### LangChain에서의 활용
+
+LangChain은 `with_structured_output()` 메서드로 여러 LLM 제공자의 구조화된 출력 기능을 통일된 인터페이스로 추상화한다. Pydantic BaseModel, TypedDict, JSON Schema dict를 스키마로 전달할 수 있으며, `method` 파라미터로 구현 방식을 선택한다.
+
+```python
+from pydantic import BaseModel
+from langchain_openai import ChatOpenAI
+
+class WeatherQuery(BaseModel):
+    latitude: float
+    longitude: float
+
+llm = ChatOpenAI(model="gpt-4o").with_structured_output(WeatherQuery)
+```
+
+_전체 코드는 practice/chapter5/code/5-5-langchain-agent.py 참고_
+
+모델이 네이티브 구조화된 출력을 지원하면, Pydantic 스키마는 프롬프트 텍스트가 아닌 모델 API(`tools`/`response_format`)를 통해 전달된다. 이를 통해 도구 호출의 인자 파싱 실패를 방지하고 에이전트 워크플로우의 안정성을 높인다.
+
+---
+
+## 5.6 고급 도구 호출 패턴
+
+### Tool Search: 대규모 도구 라이브러리 관리
+
+에이전트에 연결된 도구가 30개를 넘으면 성능 문제가 발생한다. 모든 도구 정의를 컨텍스트 윈도우에 로드하면 수만 토큰을 소비하고, 도구 간 혼동으로 선택 정확도가 떨어진다. 50개 이상의 MCP 도구를 전부 로드하면 약 77,000 토큰을 소비하는데, 이는 대부분의 모델에서 컨텍스트 윈도우의 상당 부분을 차지한다.
+
+Tool Search는 이 문제를 해결하는 패턴이다. 모든 도구를 미리 로드하는 대신, 도구를 검색 가능 상태로 유지하고 필요할 때만 로드한다. Anthropic의 구현 사례에서 50개 이상의 도구 기준으로 토큰 사용량을 약 8,700 토큰으로 줄여 85% 이상의 컨텍스트를 절약했다. 동시에 도구 선택 정확도도 향상되어, 내부 벤치마크에서 Opus 4 기준 49%에서 74%로 개선되었다.
+
+### Programmatic Tool Calling: 도구 호출 동작 제어
+
+기본적으로 LLM은 도구 호출 여부와 대상을 자율적으로 결정한다(`tool_choice: "auto"`). 하지만 파이프라인에서 특정 단계가 반드시 도구를 호출해야 하는 경우, `tool_choice` 파라미터로 동작을 강제할 수 있다. `"required"`는 반드시 하나 이상의 도구를 호출하도록 하고, 특정 함수명을 지정하면 해당 도구만 호출한다. LangChain에서는 `bind_tools()` 메서드에서 이 파라미터를 지원한다.
+
+---
+
+## 5.7 OpenAI Agents SDK 소개
+
+OpenAI Agents SDK는 2025년 3월에 출시된 에이전트 개발 프레임워크로, 실험적 프로젝트였던 Swarm의 프로덕션 레벨 후속작이다. Responses API를 기반으로 하며, LiteLLM 통합을 통해 100개 이상의 비-OpenAI 모델도 지원한다.
+
+### 4대 핵심 프리미티브
+
+**표 5.2** OpenAI Agents SDK 핵심 프리미티브
+
+| 프리미티브 | 설명 |
+|-----------|------|
+| Agent | 지시문(instructions)과 도구(tools)가 장착된 LLM 단위 |
+| Handoff | 에이전트 간 제어 이전을 위한 특수 도구 호출 |
+| Guardrails | 입력/출력 검증을 위한 구성 가능한 안전 검사 |
+| Tracing | 에이전트 실행 흐름의 시각화·디버깅·평가를 위한 내장 추적 |
+
+Agents SDK의 설계 철학은 최소한의 추상화다. LangChain이 Chain, Agent, Tool, Memory, Callback 등 다수의 개념을 제공하는 반면, Agents SDK는 위의 네 가지 프리미티브만으로 에이전트를 구성한다.
+
+### LangChain과의 비교
+
+두 프레임워크는 서로 다른 강점을 가진다. Agents SDK는 빠른 프로토타이핑과 OpenAI 모델 중심 개발에 적합하다. Handoff 프리미티브로 멀티 에이전트 패턴을 간결하게 구현할 수 있고, 내장 Tracing으로 별도 서비스 없이 디버깅이 가능하다.
+
+LangChain/LangGraph는 모델 이식성, 복잡한 워크플로우 제어, 방대한 서드파티 통합(벡터 스토어, 리트리버 등)에서 우위를 가진다. 에어갭 환경이나 로컬 모델 사용이 필요한 경우에도 LangChain이 적합하다.
+
+참고로 OpenAI의 Assistants API는 2025년 8월에 폐기(deprecated)가 공지되었으며, 2026년 8월에 서비스가 종료될 예정이다. Responses API와 Agents SDK가 후속 표준이 된다.
+
+---
+
+## 5.8 실습: OpenAI + LangChain으로 도구를 쓰는 에이전트 만들기
 
 ### 실습 목표
 
@@ -133,7 +202,7 @@ python3 code/5-5-langchain-agent.py
 
 ### 실행 결과
 
-**표 5.2** 에이전트 도구 호출 순서
+**표 5.3** 에이전트 도구 호출 순서
 
 | 순서 | 도구 | 입력 | 출력 |
 |-----|------|------|------|
@@ -159,7 +228,7 @@ python3 code/5-5-langchain-agent.py
 
 ---
 
-## 5.6 실패 사례와 디버깅
+## 5.9 실패 사례와 디버깅
 
 ### 잘못된 도구 선택
 
@@ -186,15 +255,16 @@ python3 code/5-5-langchain-agent.py
 
 - 에이전트는 ReAct 패턴(Thought → Action → Observation)으로 도구를 선택하고 호출한다.
 - 도구 설명에 목적, 입력, 출력, 제약을 명확히 기술하면 도구 선택 실패를 줄일 수 있다.
-- 콜백 핸들러를 활용하면 에이전트 실행 과정을 추적하고 디버깅할 수 있다.
-- Pydantic으로 도구 입력을 검증하면 잘못된 호출을 사전에 차단할 수 있다.
-- 무한 루프 방지를 위해 최대 반복 횟수를 설정한다.
+- 구조화된 출력(Structured Outputs)은 제한 디코딩으로 100% 스키마 준수를 보장한다.
+- Tool Search 패턴으로 30개 이상의 도구를 85% 이상의 컨텍스트 절약과 함께 관리할 수 있다.
+- OpenAI Agents SDK는 Agent, Handoff, Guardrails, Tracing 4대 프리미티브로 구성된다.
+- LangChain은 모델 이식성과 복잡한 워크플로우에, Agents SDK는 빠른 프로토타이핑에 적합하다.
 
 ---
 
 ## 다음 장 예고
 
-6장에서는 LangGraph를 사용하여 더 복잡한 에이전트 워크플로우를 구현한다. 조건부 분기, 병렬 실행, 상태 관리 등 고급 패턴을 다룬다.
+6장에서는 LangGraph 1.0을 사용하여 상태 기반의 복잡한 에이전트 워크플로우를 구현한다. 조건부 분기, 반복(재시도/검증 루프), LangSmith 통합 트레이싱, 그리고 장기 메모리 연동을 다룬다.
 
 ---
 
@@ -202,8 +272,14 @@ python3 code/5-5-langchain-agent.py
 
 LangChain. (2025). *Tools - LangChain Documentation*. https://docs.langchain.com/oss/python/langchain/tools
 
-LangChain. (2025). *LangSmith Observability*. https://docs.langchain.com/oss/python/langgraph/observability
+LangChain. (2025). *Structured output - LangChain Documentation*. https://docs.langchain.com/oss/python/langchain/structured-output
 
-OpenAI. (2025). *How to build a tool-using agent with LangChain*. OpenAI Cookbook. https://cookbook.openai.com/examples/how_to_build_a_tool-using_agent_with_langchain
+OpenAI. (2024). *Introducing Structured Outputs in the API*. https://openai.com/index/introducing-structured-outputs-in-the-api/
 
-Langfuse. (2025). *Open Source Observability for LangChain*. https://langfuse.com/integrations/frameworks/langchain
+OpenAI. (2025). *New tools for building agents*. https://openai.com/index/new-tools-for-building-agents/
+
+OpenAI. (2025). *OpenAI Agents SDK Documentation*. https://openai.github.io/openai-agents-python/
+
+Anthropic. (2025). *Introducing advanced tool use on the Claude Developer Console*. https://www.anthropic.com/engineering/advanced-tool-use
+
+Anthropic. (2025). *Tool search tool - Claude API Docs*. https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool

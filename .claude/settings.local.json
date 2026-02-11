@@ -4,7 +4,21 @@
       "Bash(python3:*)",
       "Bash(sort:*)",
       "Bash(ls:*)",
-      "WebSearch"
+      "WebSearch",
+      "WebFetch(domain:blog.modelcontextprotocol.io)",
+      "WebFetch(domain:workos.com)",
+      "WebFetch(domain:www.anthropic.com)",
+      "WebFetch(domain:blogs.cisco.com)",
+      "WebFetch(domain:en.wikipedia.org)",
+      "WebFetch(domain:www.linuxfoundation.org)",
+      "WebFetch(domain:www.pento.ai)",
+      "WebFetch(domain:www.speakeasy.com)",
+      "WebFetch(domain:google.github.io)",
+      "WebFetch(domain:a2a-protocol.org)",
+      "WebFetch(domain:openai.github.io)",
+      "Bash(npm install:*)",
+      "Bash(for f in /Users/callii/Documents/agenticAI/lectures/week-*.md)",
+      "Bash(done)"
     ]
   }
 }

@@ -1,12 +1,11 @@
-# 제8장: RAG의 기본과 프로덕션 체크리스트
+# 제8장: RAG의 기본과 에이전트 메모리 아키텍처
 
 ## 학습 목표
 
 1. RAG가 필요한 상황과 아키텍처를 이해한다.
-2. 벡터 데이터베이스(ChromaDB)를 사용하여 문서를 임베딩하고 검색한다.
-3. 검색 품질을 향상시키는 청킹과 리랭킹 전략을 적용한다.
+2. 에이전트 메모리를 4가지 유형(Working, Episodic, Semantic, Procedural)으로 분류하고 각각의 구현 전략을 설명한다.
+3. RAG와 에이전트 메모리의 차이와 상호보완 관계를 판단한다.
 4. 답변에 인용/출처를 포함하는 방법을 구현한다.
-5. 프로덕션 환경의 체크리스트(캐싱, 비용, 평가)를 작성한다.
 
 ## 선수 지식
 
@@ -143,7 +142,78 @@ chunk.metadata["chunk_id"] = i
 
 ---
 
-## 8.7 실습: 문서 기반 Q&A 시스템
+## 8.7 에이전트 메모리 분류 체계
+
+RAG가 "외부 지식을 검색하여 답변하는 구조"라면, 에이전트 메모리는 "에이전트가 경험을 축적하고 활용하는 구조"다. 인지과학의 메모리 분류를 빌려, 에이전트 메모리를 네 가지 유형으로 나눌 수 있다.
+
+### 8.7.1 Working Memory (작업 메모리)
+
+현재 컨텍스트 윈도우에 담긴 정보다. LLM에 전달되는 시스템 프롬프트, 대화 히스토리, 검색 결과가 여기에 해당한다. 가장 직접적이지만 토큰 한도에 의해 용량이 제한된다. 6장의 LangGraph State 객체도 하나의 워크플로우 내 작업 메모리로 볼 수 있다.
+
+### 8.7.2 Episodic Memory (일화 메모리)
+
+과거 이벤트와 결과를 시간순으로 저장한다. "어제 사용자가 파이썬 비동기 프로그래밍에 대해 질문했고, asyncio.gather()를 추천했다"와 같은 구체적 경험이 해당한다. 에이전트가 이전 상호작용의 맥락을 기억하여 일관된 응답을 제공하는 데 활용된다.
+
+### 8.7.3 Semantic Memory (의미 메모리)
+
+일화에서 일반화된 지식이다. "이 사용자는 한국어를 선호하고, 코드 예제를 중시한다"와 같은 패턴화된 정보가 해당한다. 특정 이벤트에 종속되지 않으므로 다양한 상황에 적용할 수 있다.
+
+### 8.7.4 Procedural Memory (절차 메모리)
+
+학습된 도구 사용 패턴과 작업 수행 방법이다. "날씨 질문에는 weather_tool을 호출하고, 결과를 한국어로 요약한다"와 같은 행동 규칙이 해당한다. 프롬프트 패턴이나 파인튜닝으로 모델에 내재화할 수 있다.
+
+**표 8.2** 에이전트 메모리 4가지 유형
+
+| 유형 | 내용 | 지속성 | 예시 |
+|------|------|--------|------|
+| Working | 현재 컨텍스트 | 세션 내 | 대화 히스토리, 검색 결과 |
+| Episodic | 과거 이벤트 | 장기 | "어제 질문에 X를 추천했다" |
+| Semantic | 일반화된 지식 | 장기 | "사용자는 한국어를 선호한다" |
+| Procedural | 행동 규칙 | 영구 | "날씨 질문 → weather_tool" |
+
+---
+
+## 8.8 메모리 구현 전략
+
+각 메모리 유형은 서로 다른 기술로 구현한다.
+
+### 8.8.1 Episodic Memory 구현
+
+벡터 데이터베이스에 시간 메타데이터를 함께 저장하는 방식이 일반적이다. 각 상호작용을 임베딩하고, 타임스탬프·사용자 ID·세션 ID를 메타데이터로 추가한다. 검색 시 시간 가중치를 적용하면 최근 경험에 더 높은 우선순위를 부여할 수 있다. 6장에서 다룬 LangGraph의 Store API(`put`, `get`, `search`)가 이 패턴의 대표적인 구현이다.
+
+### 8.8.2 Semantic Memory 구현
+
+일화 메모리에서 패턴을 추출하여 지식 그래프에 저장한다. 엔티티와 관계를 노드·엣지로 표현하면 구조화된 지식을 질의할 수 있다. 9장에서 다루는 GraphRAG가 이 접근의 확장이다. 더 단순한 방법으로는 사용자 프로필을 JSON 문서로 유지하면서 주기적으로 갱신하는 방식이 있다.
+
+### 8.8.3 Procedural Memory 구현
+
+행동 규칙은 시스템 프롬프트에 명시하거나, 파인튜닝으로 모델에 내재화한다. 학습된 도구 사용 패턴은 few-shot 예제로 프롬프트에 포함할 수 있다. 비용이 허용된다면 성공적인 도구 호출 이력을 수집하여 파인튜닝 데이터셋으로 활용하는 방법도 있다.
+
+### 8.8.4 LangGraph + 외부 저장소 조합
+
+프로덕션 수준의 메모리 시스템은 LangGraph의 체크포인터(단기)와 Store API(장기)를 외부 저장소와 결합하여 구현한다. 6장에서 다룬 MongoDB(`langgraph-store-mongodb`)는 Episodic/Semantic 메모리에, Redis(`langgraph-checkpoint-redis`)는 Working Memory와 빠른 캐시에 적합하다. 이 조합은 메모리 유형별로 최적의 저장소를 선택하면서도, LangGraph의 통합 API로 일관되게 접근할 수 있는 장점이 있다.
+
+---
+
+## 8.9 RAG와 메모리: 상호보완 관계
+
+RAG와 에이전트 메모리는 종종 혼동되지만, 그 목적이 다르다. RAG는 **외부 지식**을 검색하여 모델이 알지 못하는 정보를 제공하는 것이 목적이다. 에이전트 메모리는 **에이전트의 경험**을 축적하여 이전 상호작용의 맥락을 유지하는 것이 목적이다.
+
+**표 8.3** RAG vs 에이전트 메모리
+
+| 기준 | RAG | 에이전트 메모리 |
+|------|-----|---------------|
+| 목적 | 외부 지식 접근 | 경험 축적·활용 |
+| 데이터 원천 | 문서 코퍼스 | 과거 상호작용 |
+| 갱신 주기 | 문서 변경 시 | 매 상호작용마다 |
+| 검색 대상 | 문서 청크 | 에피소드, 사용자 선호 |
+| 대표 기술 | 벡터 DB + 임베딩 | Store API + 시간 메타데이터 |
+
+실제 에이전트 애플리케이션은 두 접근을 결합한다. RAG로 도메인 지식을 검색하면서, Episodic Memory로 이전 질의 결과를 참조하면 중복 검색을 줄이고 응답의 일관성을 높일 수 있다. 이 장의 실습에서도 기본 RAG를 구현한 뒤, Episodic Memory를 추가하는 개선판을 구현한다.
+
+---
+
+## 8.10 실습: 문서 기반 Q&A 시스템
 
 ### 실습 목표
 
@@ -165,7 +235,7 @@ python3 code/8-6-rag-basic.py
 
 ### 실행 결과
 
-**표 8.2** RAG 시스템 실행 결과
+**표 8.4** RAG 시스템 실행 결과
 
 | 항목 | 값 |
 |-----|-----|
@@ -189,7 +259,7 @@ python3 code/8-6-rag-basic.py
 
 ---
 
-## 8.8 프로덕션 체크리스트
+## 8.11 프로덕션 체크리스트
 
 프로덕션 환경에서 RAG 시스템을 운영할 때 고려해야 할 사항을 정리한다.
 
@@ -209,7 +279,7 @@ python3 code/8-6-rag-basic.py
 
 검색 실패율, 응답 시간, 사용자 피드백을 모니터링한다. 임베딩 버전을 관리하여 문서-벡터 매핑을 추적한다.
 
-**표 8.3** RAG 프로덕션 체크리스트
+**표 8.5** RAG 프로덕션 체크리스트
 
 | 영역 | 체크 항목 |
 |-----|---------|
@@ -220,7 +290,7 @@ python3 code/8-6-rag-basic.py
 
 ---
 
-## 8.9 실패 사례와 교훈
+## 8.12 실패 사례와 교훈
 
 ### 검색 실패: 관련 문서를 찾지 못함
 
@@ -240,9 +310,10 @@ python3 code/8-6-rag-basic.py
 
 - RAG는 외부 지식을 검색하여 LLM 답변의 품질과 신뢰성을 향상시킨다.
 - 인덱싱(청킹 → 임베딩 → 저장)과 검색-생성 두 단계로 구성된다.
-- 청크 크기 256-512 토큰, 오버랩 10-20%가 권장된다.
+- 에이전트 메모리는 4가지 유형으로 분류된다: Working(컨텍스트), Episodic(경험), Semantic(지식), Procedural(행동 규칙).
+- RAG는 외부 지식 검색, 메모리는 에이전트 경험 축적이라는 점에서 상호보완적이다.
+- LangGraph Store API + MongoDB/Redis 조합으로 프로덕션 수준의 메모리 시스템을 구현한다.
 - 출처를 명시하여 답변의 검증 가능성을 높인다.
-- 프로덕션에서는 캐싱, 비용 최적화, 평가, 모니터링이 필수다.
 
 ---
 
@@ -256,10 +327,14 @@ python3 code/8-6-rag-basic.py
 
 Eden AI. (2025). *The 2025 Guide to Retrieval-Augmented Generation (RAG)*. https://www.edenai.co/post/the-2025-guide-to-retrieval-augmented-generation-rag
 
-Towards Data Science. (2024). *Six Lessons Learned Building RAG Systems in Production*. https://towardsdatascience.com/six-lessons-learned-building-rag-systems-in-production/
-
 Firecrawl. (2025). *Best Chunking Strategies for RAG in 2025*. https://www.firecrawl.dev/blog/best-chunking-strategies-rag-2025
 
-Weaviate. (2024). *Chunking Strategies to Improve Your RAG Performance*. https://weaviate.io/blog/chunking-strategies-for-rag
+LangChain. (2025). *Memory overview - LangGraph Documentation*. https://docs.langchain.com/oss/python/langgraph/memory
 
-DataCamp. (2025). *Chunking Strategies for AI and RAG Applications*. https://www.datacamp.com/blog/chunking-strategies
+LangChain. (2025). *Launching Long-Term Memory Support in LangGraph*. https://www.blog.langchain.com/launching-long-term-memory-support-in-langgraph/
+
+MongoDB. (2025). *Powering Long-Term Memory For Agents With LangGraph And MongoDB*. https://www.mongodb.com/company/blog/product-release-announcements/powering-long-term-memory-for-agents-langgraph
+
+Redis. (2025). *LangGraph & Redis: Build smarter AI agents with memory persistence*. https://redis.io/blog/langgraph-redis-build-smarter-ai-agents-with-memory-persistence/
+
+Weaviate. (2024). *Chunking Strategies to Improve Your RAG Performance*. https://weaviate.io/blog/chunking-strategies-for-rag

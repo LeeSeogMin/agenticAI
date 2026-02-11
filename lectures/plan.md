@@ -94,13 +94,13 @@ lectures/
 ## 실행 순서
 
 1. ✅ 종합계획안 작성 (이 문서)
-2. syllabus.md 15주 형식으로 전면 개편
-3. README.md 업데이트
-4. 기존 lecture-*.md → _archive/ 이동
-5. week-01 ~ week-07 작성
-6. week-08 (중간고사) 작성
-7. week-09 ~ week-12 작성
-8. week-13 ~ week-15 작성
+2. ✅ syllabus.md 15주 형식으로 전면 개편
+3. ✅ README.md 업데이트
+4. ✅ 기존 lecture-*.md → _archive/ 이동
+5. ✅ week-01 ~ week-07 작성
+6. ✅ week-08 (중간고사) 작성
+7. ✅ week-09 ~ week-12 작성
+8. ✅ week-13 ~ week-15 작성
 
 ---
 
