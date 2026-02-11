@@ -18,7 +18,9 @@
       "WebFetch(domain:openai.github.io)",
       "Bash(npm install:*)",
       "Bash(for f in /Users/callii/Documents/agenticAI/lectures/week-*.md)",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(for f in /Users/callii/Documents/agenticAI/docs/ch{1..12}.md)",
+      "Bash(while read f)"
     ]
   }
 }
