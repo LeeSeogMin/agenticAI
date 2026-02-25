@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "sentry": {
+      "type": "http",
+      "url": "https://mcp.sentry.dev/sse",
+      "headers": {
+        "Authorization": "Bearer $COPILOT_MCP_SENTRY_TOKEN"
+      },
+      "tools": ["search_errors", "get_error_details"]
+    }
+  }
+}

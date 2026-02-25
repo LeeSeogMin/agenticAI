@@ -473,11 +473,11 @@ Sentry 계정이 없는 수강생은 다음 대안으로 실습한다. GitHub MC
 
 ## 참고 자료
 
-- GitHub. (2025). GitHub Copilot coding agent documentation. *GitHub Docs*. https://docs.github.com/en/copilot/using-github-copilot/using-copilot-coding-agent
-- GitHub. (2025). Configuring coding agent. *GitHub Docs*. https://docs.github.com/en/copilot/configuring-github-copilot/configuring-coding-agent
+- GitHub. (2025). GitHub Copilot coding agent. *GitHub Docs*. https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent
+- GitHub. (2025). About GitHub Copilot coding agent. *GitHub Docs*. https://docs.github.com/en/copilot/concepts/agents/coding-agent/about-coding-agent
 - GitHub. (2025). About the copilot-setup-steps.yml file. *GitHub Docs*. https://docs.github.com/en/copilot/customizing-copilot/customizing-the-development-environment-for-copilot-coding-agent
-- Sentry. (2025). Sentry MCP server. *Sentry Documentation*. https://docs.sentry.io/product/integrations/mcp/
-- GitHub. (2025). About branch protection rules. *GitHub Docs*. https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-a-branch-protection-rule/about-branch-protection-rules
+- Sentry. (2025). Sentry MCP server. *Sentry Documentation*. https://docs.sentry.io/product/sentry-mcp/
+- GitHub. (2025). About protected branches. *GitHub Docs*. https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches
 
 ---
 

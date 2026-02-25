@@ -299,7 +299,7 @@ teardown_appcontext는 왜 필요한가?
 
 ## 참고 자료
 
-- GitHub. (2025). GitHub Copilot documentation: Using Copilot agent mode. *GitHub Docs*. https://docs.github.com/en/copilot/using-github-copilot/using-copilot-agent-mode
+- GitHub. (2025). GitHub Copilot documentation: Using Copilot agent mode. *GitHub Docs*. https://code.visualstudio.com/docs/copilot/agents/overview
 - Microsoft. (2025). GitHub Copilot in VS Code. *Visual Studio Code Documentation*. https://code.visualstudio.com/docs/copilot/overview
 - Microsoft. (2025). Chat modes in VS Code. *Visual Studio Code Documentation*. https://code.visualstudio.com/docs/copilot/chat/chat-modes
 

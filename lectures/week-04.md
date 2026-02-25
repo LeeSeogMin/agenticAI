@@ -329,7 +329,7 @@ MCP 서버 연결에서 가장 빈번하게 발생하는 오류와 해결 방법
 
 - Anthropic. (2024). Introducing the Model Context Protocol. *Anthropic Blog*. https://www.anthropic.com/news/model-context-protocol
 - Model Context Protocol. (2025). MCP Specification (2025-11-25). *GitHub*. https://github.com/modelcontextprotocol/specification
-- Linux Foundation. (2025). Announcing the Agentic AI Foundation. *Linux Foundation Blog*. https://www.linuxfoundation.org/press/announcing-agentic-ai-foundation
+- Linux Foundation. (2025). Announcing the Agentic AI Foundation. *Linux Foundation Blog*. https://www.linuxfoundation.org/press/linux-foundation-announces-the-formation-of-the-agentic-ai-foundation
 - MCP Registry. https://registry.modelcontextprotocol.io/
 - VS Code MCP 문서. https://code.visualstudio.com/docs/copilot/chat/mcp-servers
 

@@ -25,7 +25,7 @@
 
 ### 9.1 Skills란 무엇인가
 
-4~7주차에 걸쳐 MCP 서버를 통해 Copilot에 새로운 "도구(tool)"를 부여하는 방법을 다루었다. MCP가 Copilot의 **행동 능력**을 확장한다면, 이번 주부터 다루는 Skills(스킬)는 Copilot의 **판단 기준**을 확장하는 기술이다. GitHub는 2025년 12월 18일에 Agent Skills를 공식 발표하였으며, 이를 통해 개발자는 Copilot에 도메인별 지식과 절차를 체계적으로 가르칠 수 있게 되었다.
+4~7주차에 걸쳐 MCP 서버를 통해 Copilot에 새로운 "도구(Tool)"를 부여하는 방법을 다루었다. MCP가 Copilot의 **행동 능력**을 확장한다면, 이번 주부터 다루는 Skills(스킬)는 Copilot의 **판단 기준**을 확장하는 기술이다. GitHub는 2025년 12월 18일에 Agent Skills를 공식 발표하였으며, 이를 통해 개발자는 Copilot에 도메인별 지식과 절차를 체계적으로 가르칠 수 있게 되었다.
 
 스킬은 지시 사항(instructions), 스크립트(scripts), 참조 파일(references)을 하나의 폴더에 묶어 놓은 자기 완결적 패키지이다. Copilot은 사용자의 프롬프트가 특정 스킬과 관련이 있다고 판단할 때만 해당 스킬을 자동으로 불러온다. 이 자동 활성화 메커니즘이 기존의 Custom Instructions와 가장 큰 차이점이다.
 
@@ -528,10 +528,10 @@ def create_user():
 
 ## 참고 자료
 
-- GitHub Blog. (2025). *Introducing agent skills for Copilot*. https://github.blog/changelog/2025-12-18-introducing-agent-skills-for-copilot/
-- GitHub Docs. (2026). *Customizing Copilot with Skills*. https://docs.github.com/en/copilot/customizing-copilot/adding-skills
-- VS Code Docs. (2026). *Agent Mode - Agent Skills*. https://code.visualstudio.com/docs/copilot/chat/chat-agent-mode#_agent-skills
-- GitHub. (2026). *copilot-community/awesome-copilot-skills*. https://github.com/copilot-community/awesome-copilot-skills
+- GitHub Blog. (2025). *GitHub Copilot now supports Agent Skills*. https://github.blog/changelog/2025-12-18-github-copilot-now-supports-agent-skills/
+- GitHub Docs. (2026). *Creating agent skills for GitHub Copilot*. https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/create-skills
+- VS Code Docs. (2026). *Agent Skills in VS Code*. https://code.visualstudio.com/docs/copilot/customization/agent-skills
+- GitHub Docs. (2026). *About agent skills*. https://docs.github.com/en/copilot/concepts/agents/about-agent-skills
 
 ---
 

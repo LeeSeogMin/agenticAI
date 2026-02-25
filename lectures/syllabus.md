@@ -344,7 +344,7 @@ Phase 4. 팀 & 프로젝트 (12~15주)
 ### 공식 문서
 - [GitHub Copilot Docs](https://docs.github.com/en/copilot)
 - [VS Code Copilot Agent Mode](https://code.visualstudio.com/docs/copilot/chat/chat-agent-mode)
-- [MCP Specification](https://spec.modelcontextprotocol.io/)
+- [MCP Specification](https://modelcontextprotocol.io/specification/2025-11-25)
 - [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)
 
 ### MCP 서버 탐색
@@ -352,7 +352,7 @@ Phase 4. 팀 & 프로젝트 (12~15주)
 - [GitHub Copilot Extensions Marketplace](https://github.com/marketplace?type=copilot)
 
 ### 추가 학습
-- [GitHub Copilot Coding Agent](https://docs.github.com/en/copilot/using-github-copilot/using-copilot-coding-agent)
+- [GitHub Copilot Coding Agent](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent)
 - [VS Code Agent Skills](https://code.visualstudio.com/docs/copilot/chat/chat-agent-mode#_agent-skills)
 
 ---
