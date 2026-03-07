@@ -1,8 +1,0 @@
-# Ignore everything
-/*
-
-# Except lecture/, practice/, and 강의계획서.md
-!lecture/
-!practice/
-!강의계획서.md
-!ms-word/templates/*.md
