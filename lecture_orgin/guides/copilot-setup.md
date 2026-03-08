@@ -1,7 +1,7 @@
 ## 수업 활용 안내
 
-- 본 과목: **GitHub Copilot** 활용 Python 실습 진행
-- 대학생: **GitHub Student Developer Pack** 통해 **Copilot Pro 무료** 사용 가능
+본 과목에서는 **GitHub Copilot**을 활용하여 Python 실습을 진행합니다.
+대학생은 **GitHub Student Developer Pack**을 통해 **Copilot Pro를 무료**로 사용할 수 있습니다.
 
 ---
 
@@ -16,7 +16,7 @@
 | **Copilot Pro (학생)** | GitHub Education 인증 학생 | **무료** | 월 300 premium requests | Pro 풀 기능 |
 
 > **핵심**: 대학생이라면 **Copilot Pro 무료** 사용 가능!
->
+> 
 
 ---
 
@@ -43,7 +43,7 @@
 | 4 | 등록금 영수증 + 신분증 | 중간 | 3~10일 |
 
 > **팁**: 한국 4년제 대학 재학생은 **학교 이메일만으로 1~24시간 내 자동 승인**됩니다.
->
+> 
 
 ### Step 4: 승인 확인
 
@@ -95,11 +95,11 @@
 1. Copilot Chat 열기 (Ctrl+Shift+I)
 2. 상단에서 **Agent** 선택 (Ask/Edit/Agent 중)
 3. 설정에서 활성화:
-
+    
     ```json
     "github.copilot.chat.agent.enabled": true
     ```
-
+    
 
 ---
 
@@ -107,7 +107,7 @@
 
 ### MCP란?
 
-- Copilot의 기능을 외부 도구/API/데이터 소스와 연동하여 확장하는 프로토콜
+**MCP**는 Copilot의 기능을 외부 도구/API/데이터 소스와 연동하여 확장하는 프로토콜입니다.
 
 | 항목 | 설명 |
 | --- | --- |
@@ -157,7 +157,7 @@
 
 ### Skills란?
 
-- Copilot에게 특정 작업에 대한 전문 지침을 주입하는 기능
+**Skills**는 Copilot에게 특정 작업에 대한 전문 지침을 주입하는 기능입니다.
 
 | 항목 | Agent Skills | MCP |
 | --- | --- | --- |
@@ -178,11 +178,11 @@
 ### Skills 만들기
 
 1. 저장소 루트에 폴더 생성:
-
+    
     ```
     .github/skills/pandas-eda-standard/
     ```
-
+    
 2. `SKILL.md` 파일 작성:
 
 ```markdown
