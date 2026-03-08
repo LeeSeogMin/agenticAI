@@ -166,6 +166,46 @@
   - 특정 폴더 밖 접근은 금지
 - 따라서 좋은 MCP 서버는 "많이 할 수 있는 서버"보다 "무엇을 못 하게 할지 분명한 서버"에 가까움
 
+### 3.3.5 MCP 서버의 토큰 소비 문제와 대응
+
+- MCP 서버를 연결하면 실제 호출 여부와 무관하게 **모든 툴 스키마가 세션 시작 시 컨텍스트에 로드**됨
+- 시스템 프롬프트, 툴, MCP 서버, 에이전트, 메모리, 대화 내용 전부가 하나의 컨텍스트 윈도우(보통 200k 토큰) 안에서 경쟁함
+- 이것은 실제 운용에서 심각한 문제로 알려져 있음
+
+#### 실제 소비 규모
+
+- 한 사례에서는 MCP 툴 스키마만으로 **81,986 토큰(전체의 41%)**이 소비됨
+- 서버별 예시:
+  - playwright-mcp: 22개 툴 → 약 14,300 토큰 (200k의 7.2%)
+  - Jira MCP 단독으로 약 17,000 토큰
+  - 5개 서버 조합 시 55,000 토큰 이상이 대화 시작 전에 소모됨
+- 빈 대화 상태에서 자유 공간이 5%밖에 남지 않는 경우도 발생함
+
+#### 대응 1: Tool Search (자동)
+
+- MCP 툴 설명이 컨텍스트 윈도우의 10%를 초과하면 Claude Code가 자동으로 **Tool Search**를 활성화함
+- 이 경우 MCP 툴이 즉시 로드되지 않고 **지연(defer)**되며, 실제 필요한 툴만 온디맨드로 검색해서 로드함
+- 전통적 방식 대비 토큰 사용량을 약 85% 줄이며, 도구 선택 정확도도 개선됨
+
+#### 대응 2: 세션별 서버 관리 (수동)
+
+- 세션마다 **필요한 MCP 서버만 활성화**하는 것이 핵심
+- `/context` 명령으로 현재 토큰 소비 현황을 확인할 수 있음
+- `/mcp`로 서버별 토큰 비용을 확인하고 불필요한 서버를 비활성화할 수 있음
+
+#### 대응 3: Skill로 대체
+
+- MCP 서버 대신 **Skill을 활용**하면 초기 로드 시 약 200 토큰만 소비하고, 실제 호출 시에만 전체 내용이 로드됨
+- 예: Playwright를 5회 중 1회만 사용한다면, 나머지 4 세션에서 약 10,000 토큰을 절약할 수 있음
+- 따라서 자주 쓰지 않는 도구는 MCP 상시 연결보다 Skill 호출 방식이 효율적임
+
+#### 이 문제가 실습에서 중요한 이유
+
+- "MCP 서버를 많이 붙이면 더 강력해진다"는 직관은 틀림
+- 실제로는 **도구가 늘어날수록 컨텍스트가 좁아지고 대화 품질이 떨어짐**
+- 좋은 설계는 "필요한 도구만 필요한 시점에 로드하는 것"임
+- 이 감각은 이후 멀티에이전트, LangGraph 실습에서도 반복적으로 중요해짐
+
 ---
 
 ## 3.4 실습 1: 기존 MCP 서버 연결해서 써 보기
@@ -183,17 +223,37 @@
 4. 입력과 출력을 기록한다
 5. 실패 사례가 있으면 원인을 메모한다
 
-### GitHub Copilot 최신 실습 방법
+### GitHub Copilot 최신 실습 방법 (2026년 3월 기준)
 
-- VS Code에서 MCP 서버를 쓰는 최신 공식 흐름은 다음 두 가지 중 하나임
-  - MCP Servers Marketplace에서 서버 설치
-  - 저장소 또는 설정 파일에 MCP 구성 추가
-- 수업에서는 입문 난도를 낮추기 위해 **Marketplace 또는 기본 제공 GitHub MCP server**부터 시작하는 것을 권장함
+- VS Code(1.99 이상)에서 MCP 서버를 쓰는 공식 흐름은 다음 세 가지임
+  - **Extensions 뷰에서 `@mcp` 검색** → MCP 서버 레지스트리 갤러리에서 설치
+  - **`.vscode/mcp.json`** (워크스페이스 스코프) 또는 사용자 수준 `mcp.json`에 직접 구성 추가
+  - **Command Palette → `MCP: Add Server`** 로 서버 추가
+- 수업에서는 입문 난도를 낮추기 위해 **`@mcp` 검색 또는 기본 제공 GitHub MCP server**부터 시작하는 것을 권장함
+
+#### `.vscode/mcp.json` 구성 예시
+
+```json
+{
+  "servers": {
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/"
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest"]
+    }
+  }
+}
+```
+
+- 이 파일은 저장소에 커밋하면 팀 전체가 공유할 수 있음
 
 ### GitHub Copilot 실습 예시
 
-1. VS Code에서 확장 패널을 연다
-2. MCP Server 필터를 사용해 필요한 서버를 찾는다
+1. VS Code에서 Extensions 뷰를 열고 검색창에 `@mcp`를 입력한다
+2. 필요한 MCP 서버를 찾아 설치하거나, `.vscode/mcp.json`에 직접 추가한다
 3. `github` 서버를 설치하거나 이미 구성된 서버를 확인한다
 4. Copilot Chat에서 **Agent mode**를 연다
 5. 다음과 같이 요청한다
@@ -287,10 +347,21 @@ docs/agent-rules.md의 규칙을 따르면서 docs/notes.md를 요약해줘.
   templates/
 ```
 
-- `SKILL.md`에는 최소한 다음을 적음
-  - 언제 이 skill을 로드할지
-  - 어떤 출력 형식을 사용할지
-  - 검증 항목을 어떻게 적을지
+- `SKILL.md`에는 YAML 프론트매터와 본문을 함께 적음
+
+```markdown
+---
+name: doc-summary
+description: Summarize documents and save to output/. Use for file summarization, documentation review.
+---
+
+# Document Summary Skill
+
+Read the target document, summarize it, save the result in output/, and list 3 verification checks.
+```
+
+- **중요 제약**: `name` 필드는 소문자+하이픈만 허용하며, **부모 디렉토리 이름과 반드시 일치**해야 함 (예: 디렉토리가 `doc-summary/`이면 `name: doc-summary`)
+- `description`은 Copilot이 언제 이 skill을 자동 선택할지 결정하는 핵심 필드이므로 구체적으로 작성함
 
 ### 실습 확장: custom instructions 추가
 
@@ -299,6 +370,23 @@ docs/agent-rules.md의 규칙을 따르면서 docs/notes.md를 요약해줘.
   - skill로 넣었을 때
   - instruction으로 넣었을 때
   - 둘의 역할이 어떻게 다른가
+
+#### `.instructions.md` 경로별 지시 (2025년 중반 추가)
+
+- `.github/copilot-instructions.md`는 저장소 전체에 적용되는 지시 파일 (프론트매터 불필요)
+- `.github/instructions/*.instructions.md`는 **특정 경로에만 적용**되는 지시 파일
+
+```markdown
+---
+applyTo: "src/components/**/*.ts,src/components/**/*.tsx"
+---
+
+컴포넌트 파일은 반드시 테스트 파일과 함께 작성한다.
+출력은 항상 output/에 저장한다.
+```
+
+- `applyTo`에 글롭 패턴을 쉼표로 구분해 넣으면 해당 파일 편집 시에만 지시가 활성화됨
+- 학생은 skill과 path-scoped instruction의 역할 차이를 비교해야 함
 
 ### 실습의 의도
 
@@ -371,6 +459,12 @@ Python으로 최소 MCP 서버 예제를 만들어줘.
 - GitHub Copilot에서 plugin이 무엇을 묶는지 실제로 확인한다
 - plugin 안에 skills, MCP 설정, agents를 함께 담을 수 있다는 점을 체험한다
 
+### 사전 안내: `gh copilot` → 독립 `copilot` CLI
+
+- 구 `gh copilot` 확장(suggest, explain)은 **2025년 10월 25일 종료**됨
+- 이후 독립 실행 파일인 **`copilot` CLI**가 이를 완전 대체함 (2026년 2월 25일 GA)
+- 수업에서 `copilot` 명령은 모두 이 독립 CLI를 가리킴
+
 ### 왜 CLI plugin을 다루는가
 
 - GitHub Copilot의 plugin은 현재 **Copilot CLI**에서 가장 명확하게 드러남
@@ -383,7 +477,7 @@ Python으로 최소 MCP 서버 예제를 만들어줘.
 ### 수행 단계
 
 1. `my-plugin/` 디렉토리를 만든다
-2. 루트에 `plugin.json`을 만든다
+2. `plugin.json`을 만든다 (위치: 루트, `.github/plugin/`, 또는 `.claude-plugin/` 중 택 1)
 3. `skills/` 아래에 간단한 skill 하나를 만든다
 4. 필요하면 `.mcp.json`에 MCP 서버 설정 하나를 넣는다
 5. 로컬에서 plugin을 설치한다
@@ -393,7 +487,7 @@ Python으로 최소 MCP 서버 예제를 만들어줘.
 
 ```text
 my-plugin/
-  plugin.json
+  plugin.json            # 루트에 두거나 .github/plugin/ 아래에 둘 수 있음
   skills/
     doc-summary/
       SKILL.md
@@ -407,7 +501,7 @@ my-plugin/
   "name": "my-dev-tools",
   "description": "Week 3 practice plugin",
   "version": "1.0.0",
-  "skills": "skills/",
+  "skills": ["skills/"],
   "mcpServers": ".mcp.json"
 }
 ```
@@ -415,7 +509,16 @@ my-plugin/
 ### 설치와 확인
 
 ```bash
+# 로컬 디렉토리에서 설치
 copilot plugin install ./my-plugin
+
+# 마켓플레이스에서 설치
+copilot plugin install PLUGIN-NAME@MARKETPLACE-NAME
+
+# GitHub 저장소에서 설치
+copilot plugin install OWNER/REPO
+
+# 설치 확인
 copilot plugin list
 ```
 
@@ -469,14 +572,14 @@ copilot plugin list
 
 ## 3.9 테스트와 검증
 
-### 3.8.1 AI 없이 단독 테스트하는 법
+### 3.9.1 AI 없이 단독 테스트하는 법
 
 - MCP 서버는 가능하면 AI 없이도 테스트할 수 있어야 함
 - 이유:
   - 문제 원인을 분리하기 쉬움
   - 모델 출력과 서버 오류를 구분할 수 있음
 
-### 3.8.2 정상 입력 / 오류 입력 테스트
+### 3.9.2 정상 입력 / 오류 입력 테스트
 
 - 최소한 두 종류의 테스트가 필요함
   - 정상 입력
@@ -486,7 +589,7 @@ copilot plugin list
   - 정상 경로 입력 시 파일 목록 반환
   - 존재하지 않는 경로 입력 시 읽기 쉬운 오류 반환
 
-### 3.8.3 로그와 산출물 남기기
+### 3.9.3 로그와 산출물 남기기
 
 - 다음 파일을 남기는 습관을 들임
   - 실행 로그
@@ -601,6 +704,8 @@ Read the target document, summarize it, save the result in output/, and list 3 v
 
 ```bash
 claude --plugin-dir ./my-first-plugin
+# 여러 플러그인을 동시에 로드할 수도 있음
+claude --plugin-dir ./plugin-one --plugin-dir ./plugin-two
 ```
 
 - 실행 후 다음처럼 호출해 본다
@@ -609,10 +714,13 @@ claude --plugin-dir ./my-first-plugin
 /my-first-plugin:hello
 ```
 
+- **중요**: 플러그인 내부의 skill은 **네임스페이스가 붙어** `/플러그인이름:스킬이름` 형태로 호출됨. 이는 다른 플러그인의 skill과 이름이 충돌하지 않도록 하기 위함임
+
 - 학생은 다음을 확인한다
   - 플러그인 명령이 보이는가
   - skill이 실제로 로드되는가
   - 출력 형식이 의도대로 유지되는가
+  - 네임스페이스 호출이 정상 동작하는가
 
 ### A.6 Skills 실습
 
@@ -644,14 +752,30 @@ docs/notes.md를 요약해줘.
 - Claude Code에서 MCP 서버를 추가할 때는 다음 흐름을 사용한다
 
 ```bash
-claude mcp add github --scope local -- <server-command>
+# HTTP 서버 (권장)
+claude mcp add --transport http github https://api.example.com/mcp/
+
+# stdio 서버
+claude mcp add --transport stdio my-server -- python server.py
+
+# 관리 명령
 claude mcp list
+claude mcp get <name>
+claude mcp remove <name>
 ```
 
-- 설정 범위:
-  - `local`: 현재 프로젝트 개인 설정
-  - `project`: 팀 공유 설정
-  - `user`: 여러 프로젝트 공통 설정
+- 설정 범위 (scope):
+  - `local` (기본값): 현재 프로젝트, 개인 설정 (`~/.claude.json`에 저장)
+  - `project`: 팀 공유 설정 (프로젝트 루트 `.mcp.json`에 저장, git 커밋 가능)
+  - `user`: 모든 프로젝트 공통, 개인 설정 (`~/.claude.json`에 저장)
+
+```bash
+claude mcp add --scope local ...     # 기본값, 나만 사용
+claude mcp add --scope project ...   # .mcp.json에 저장, 팀 공유
+claude mcp add --scope user ...      # 모든 프로젝트에서 나만 사용
+```
+
+- **참고**: SSE 트랜스포트는 deprecated. HTTP 트랜스포트를 사용할 것
 
 - 실습에서는 다음을 확인한다
   - 서버가 실제로 목록에 보이는가
@@ -665,10 +789,32 @@ claude mcp list
   - **Settings**: 기본 행동 규칙
   - **Memory**: 프로젝트 맥락 유지
 
+#### Hooks
+
+- hooks 설정 파일 위치:
+  - `~/.claude/settings.json` — 모든 프로젝트, 개인용
+  - `.claude/settings.json` — 프로젝트용, 커밋 가능
+  - `.claude/settings.local.json` — 프로젝트용, gitignored
+- 주요 hook 이벤트: `PreToolUse` (도구 실행 전 차단 가능), `PostToolUse` (실행 후 검사), `Stop` (응답 완료 시), `UserPromptSubmit` (프롬프트 제출 후), `SessionStart` 등
+- hook 타입: `command` (셸 명령), `http` (HTTP POST), `prompt` (Claude 모델 평가)
+- `/hooks` 명령으로 인터랙티브하게 설정할 수도 있음
+
 - hooks 실습 예:
-  - 작업 완료 후 로그 저장
-  - 명령 실행 전 경고 출력
-  - 특정 파일 변경 뒤 검사 스크립트 실행
+  - 작업 완료 후(`Stop`) 로그 저장
+  - 명령 실행 전(`PreToolUse`) 위험 명령 차단
+  - 특정 파일 변경 뒤(`PostToolUse`) 검사 스크립트 실행
+
+#### Memory
+
+- Claude Code의 메모리는 두 가지 시스템으로 구분됨
+  - **CLAUDE.md** (사용자가 작성): 프로젝트 규칙과 문맥을 적는 파일
+    - `./CLAUDE.md` — 프로젝트 수준, git 커밋 대상
+    - `~/.claude/CLAUDE.md` — 개인, 모든 프로젝트
+    - `./CLAUDE.local.md` — 개인 프로젝트용, gitignored
+  - **Auto memory** (Claude가 자동 기록): `~/.claude/projects/<project>/memory/` 에 저장
+    - `MEMORY.md` 첫 200줄이 매 세션 로드됨
+    - `/memory` 명령으로 상태 확인 및 편집 가능
+- `.claude/rules/` 디렉토리에 경로별 규칙 파일을 넣을 수도 있음 (`paths:` 프론트매터로 스코핑)
 
 - settings / memory 실습 예:
   - 출력은 항상 `output/`
@@ -749,16 +895,28 @@ Python으로 읽기 전용 최소 MCP 서버를 만들어줘.
 
 ### B.3 ChatGPT의 MCP 실습
 
-- OpenAI 공식 문서 기준 ChatGPT Apps와 API 통합은 MCP 서버와 연결될 수 있다
+- ChatGPT는 2025년 9월부터 **Developer Mode**를 통해 MCP를 지원함
+  - 설정 경로: Settings → Connectors → Advanced → Developer Mode
+- **중요 제약**: ChatGPT MCP는 **원격 HTTPS 서버만 연결 가능**. localhost 서버에는 연결할 수 없음 (Claude Desktop과의 핵심 차이)
+- ChatGPT App Directory에 등록된 서드파티 앱은 내부적으로 MCP 서버로 구현됨
 - 수업에서는 구현보다 개념 구분에 집중한다
 - 핵심 메시지:
   - ChatGPT Apps는 사용자 표면
-  - MCP는 그 뒤쪽의 도구 연결 표준일 수 있다
+  - MCP는 그 뒤쪽의 도구 연결 표준
+  - Apps SDK(오픈소스)는 MCP를 확장해 인터랙티브 UI를 함께 제공하는 프레임워크
 
 ### B.4 Codex에서의 Skills / Rules 실습
 
-- Codex는 ChatGPT 계정으로 사용하는 코딩 에이전트이며, terminal, IDE, app, cloud 표면을 함께 제공한다
-- 공식 안내 기준 Codex app은 skills, automations, git 기능을 제공한다
+- Codex는 ChatGPT 계정으로 사용하는 코딩 에이전트이며, 다음 표면을 함께 제공한다
+  - Terminal / CLI (Rust 기반 오픈소스)
+  - IDE 확장 (VS Code 등)
+  - Codex App (웹/클라우드)
+  - GitHub (`@codex` 태그로 이슈·PR에서 호출)
+  - Slack (`@Codex` 태그로 채널에서 호출)
+  - ChatGPT iOS 앱
+- 공식 안내 기준 Codex는 skills, automations, rules, `AGENTS.md` 기능을 제공한다
+- **`AGENTS.md`**: 저장소 수준의 지침 파일로, Codex가 프로젝트를 이해하는 방법을 정의함
+  - 우선순위: `AGENTS.override.md` > `AGENTS.md` > `TEAM_GUIDE.md` > `.agents.md`
 - 3주차 실습에서는 다음과 같이 수행한다
 
 ```text
@@ -778,7 +936,8 @@ Python으로 읽기 전용 최소 MCP 서버를 만들어줘.
 
 ### B.5 Codex의 MCP 실습
 
-- Codex 관련 공식 문서 네비게이션에는 MCP와 Skills가 별도 구성 항목으로 존재한다
+- Codex는 CLI와 IDE 확장 모두에서 MCP를 지원함
+- Codex CLI 자체가 **MCP 서버로도 동작**할 수 있어, OpenAI Agents SDK 등 외부 에이전트가 Codex를 도구로 호출하는 구조도 가능함
 - 수업에서는 다음 수준까지 실습하는 것을 목표로 한다
   - Codex가 MCP 서버를 쓰는 환경이라는 점을 이해한다
   - 같은 작업을 "도구 없이"와 "MCP 연결 후" 비교한다
@@ -790,10 +949,15 @@ Python으로 읽기 전용 최소 MCP 서버를 만들어줘.
   - ChatGPT 안에서 기능을 붙이는 현재형 표면
 - **Rules / Skills**
   - 반복 작업 규칙을 고정하는 계층
+  - Codex는 `~/.codex/rules/` 또는 프로젝트 수준 rules 디렉토리를 지원하며, allow/prompt/forbidden 모델로 권한을 관리함
+- **AGENTS.md**
+  - 저장소 수준의 프로젝트 지침 파일 (CLAUDE.md와 유사한 역할)
 - **Automations**
   - 반복 작업을 자동 실행 흐름으로 옮기는 계층
 - **Memory**
-  - 지속 선호와 문맥을 유지하는 계층
+  - 2025년 4월부터 단순 메모 저장을 넘어 **전체 과거 대화 참조** 기능이 추가됨
+  - Plus/Pro 사용자는 전체 대화 기록 기반 메모리, Free 사용자는 제한적 최근 대화 참조를 사용함
+  - Settings → Personalization에서 저장된 메모리를 확인·편집·삭제 가능
 
 ### B.7 OpenAI 부록의 의도
 
@@ -801,6 +965,7 @@ Python으로 읽기 전용 최소 MCP 서버를 만들어줘.
 - 이 부록의 핵심 대응 관계:
   - GitHub Copilot plugin ↔ ChatGPT Apps
   - GitHub Skills ↔ Codex skills / rules
+  - GitHub custom instructions ↔ Codex AGENTS.md
   - GitHub hooks ↔ Codex automations
   - GitHub memory ↔ OpenAI memory
   - GitHub MCP ↔ OpenAI MCP integrations
@@ -810,26 +975,46 @@ Python으로 읽기 전용 최소 MCP 서버를 만들어줘.
 
 ## 참고 자료
 
+### GitHub Copilot
+
 - GitHub Copilot agent mode: https://docs.github.com/en/copilot/how-tos/chat/asking-github-copilot-questions-in-your-ide
+- VS Code MCP 서버 설정: https://code.visualstudio.com/docs/copilot/customization/mcp-servers
 - GitHub MCP and coding agent: https://docs.github.com/en/copilot/concepts/agents/coding-agent/mcp-and-coding-agent
+- GitHub MCP server 설정: https://docs.github.com/en/copilot/how-tos/provide-context/use-mcp/set-up-the-github-mcp-server
 - GitHub Copilot CLI plugins overview: https://docs.github.com/copilot/concepts/agents/copilot-cli/about-cli-plugins
 - GitHub Copilot CLI plugin creation: https://docs.github.com/copilot/how-tos/copilot-cli/customize-copilot/plugins-creating
-- GitHub Copilot CLI plugin install: https://docs.github.com/en/enterprise-cloud%40latest/copilot/how-tos/copilot-cli/customize-copilot/plugins-finding-installing
+- GitHub Copilot CLI plugin install: https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/plugins-finding-installing
+- GitHub Copilot CLI command reference: https://docs.github.com/en/copilot/reference/cli-command-reference
 - GitHub Agent Skills: https://docs.github.com/en/copilot/concepts/agents/about-agent-skills
-- GitHub custom instructions: https://docs.github.com/en/copilot/how-tos/custom-instructions/add-repository-instructions
+- GitHub Agent Skills 만들기: https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/create-skills
+- GitHub custom instructions: https://docs.github.com/en/copilot/customizing-copilot/adding-custom-instructions-for-github-copilot
+- VS Code custom instructions: https://code.visualstudio.com/docs/copilot/customization/custom-instructions
+
+### Claude Code
+
 - Claude Code overview: https://docs.anthropic.com/en/docs/claude-code/overview
 - Claude Code IDE integration: https://docs.anthropic.com/en/docs/claude-code/ide-integrations
-- Claude Code MCP: https://docs.anthropic.com/en/docs/claude-code/mcp
-- Claude Code Skills: https://docs.anthropic.com/en/docs/claude-code/slash-commands
+- Claude Code MCP: https://code.claude.com/docs/en/mcp
+- Claude Code Skills: https://code.claude.com/docs/en/skills
 - Claude Code plugins: https://code.claude.com/docs/en/plugins
+- Claude Code plugin 마켓플레이스: https://code.claude.com/docs/en/discover-plugins
 - Claude Code settings: https://docs.anthropic.com/en/docs/claude-code/settings
-- Claude Code hooks: https://docs.anthropic.com/en/docs/claude-code/hooks
-- Claude Code memory: https://docs.anthropic.com/en/docs/claude-code/memory
+- Claude Code hooks: https://code.claude.com/docs/en/hooks
+- Claude Code memory: https://code.claude.com/docs/en/memory
+
+### OpenAI / Codex
+
 - OpenAI MCP docs: https://developers.openai.com/api/docs/mcp
 - OpenAI tools docs: https://developers.openai.com/api/docs/guides/tools
 - Apps in ChatGPT: https://help.openai.com/en/articles/11487775-connectors-in-chatgpt
-- Codex in ChatGPT plans: https://help.openai.com/en/articles/11369540/
+- ChatGPT Developer Mode / MCP: https://help.openai.com/en/articles/12584461-developer-mode-apps-and-full-mcp-connectors-in-chatgpt-beta
 - Introducing the Codex app: https://openai.com/index/introducing-the-codex-app/
+- Codex GA 발표: https://openai.com/index/codex-now-generally-available/
+- Codex Skills: https://developers.openai.com/codex/skills/
+- Codex Rules: https://developers.openai.com/codex/rules/
+- Codex AGENTS.md: https://developers.openai.com/codex/guides/agents-md
+- Codex MCP: https://developers.openai.com/codex/mcp/
+- OpenAI Memory FAQ: https://help.openai.com/en/articles/8590148-memory-faq
 
 ---
 
