@@ -1,953 +1,840 @@
-# Week 3. MCP 개념과 도구/리소스 설계
+# Week 3. MCP, Skills, Plugins 실전 입문
 
 > 원본: docs/ch3.md
 
 ## 학습 목표
 
-- Model Context Protocol(MCP)의 개념과 필요성을 이해할 수 있다
-- MCP 스펙의 진화 과정과 2025-11-25 핵심 변경 사항을 설명할 수 있다
-- MCP의 도구(tool)와 리소스(resource) 설계 원칙을 적용할 수 있다
-- 최소 MCP 서버의 구조와 통신 방식(STDIO)을 설명할 수 있다
+- MCP가 무엇을 해결하는지 실제 사례로 설명할 수 있다
+- GitHub Copilot에서 기존 MCP 서버를 연결하고 실제로 호출할 수 있다
+- GitHub Copilot용 skill 또는 instruction 파일을 작성하고 적용 효과를 비교할 수 있다
+- plugin/app/connector, instructions, hooks, memory 계열이 MCP 및 Skills와 어떻게 다른지 구분할 수 있다
+- 최소 MCP 서버를 직접 구현하고 테스트할 수 있다
 
 ---
 
-## 3.1 왜 MCP가 필요한가
+## 선수 지식
 
-- AI 코딩 어시스턴트를 사용하다 보면 반복되는 패턴이 나타남
-  - "이 디렉토리의 파일 목록을 보여줘"
-  - "이 API를 호출해서 결과를 파일로 저장해줘"
-  - "이 데이터베이스에서 특정 조건의 레코드를 가져와줘"
-  - 단순해 보이지만 AI가 매번 처음부터 코드를 생성하면 일관성이 떨어지고 오류 가능성이 높아짐
-- 더 큰 문제: AI가 외부 시스템에 접근할 때 발생
-  - 파일 시스템, 데이터베이스, 웹 API, 클라우드 서비스 등 다양한 외부 자원에 안전하고 일관된 방식으로 접근하려면 표준화된 인터페이스가 필요
-  - 각 AI 도구(ChatGPT, Claude, GitHub Copilot)마다 다른 방식으로 외부 자원에 접근하면 코드 재사용·이식이 어려움
-
-### 3.1.1 AI 도구 통합의 문제점
-
-- 현재 AI 코딩 어시스턴트들은 각자 다른 방식으로 외부 도구와 통합
-  - OpenAI 제품군: Responses API, ChatGPT developer mode, GPT Actions 등 제품 표면별 통합 방식이 다름
-  - Claude: Tool Use API 제공
-  - GitHub Copilot: VS Code의 확장 기능과 통합
-  - 플랫폼마다 API 형식, 인증 방식, 오류 처리 방법이 다름
-  - → 하나의 도구를 여러 플랫폼에서 사용하려면 플랫폼별로 별도의 어댑터를 구현해야 함
-
-- → 예시: Notion API를 호출하는 도구를 만드는 경우
-  - OpenAI 쪽 표면에 직접 붙일 경우: Responses API용 도구 정의 또는 GPT Action/OpenAPI 구성이 필요할 수 있음
-  - 동일 기능을 Claude에서 사용하려면: Anthropic의 Tool Use API 형식에 맞춰 함수 정의를 다시 작성
-  - GitHub Copilot에서 사용하려면: VS Code 확장이나 MCP 연동 방식으로 패키징
-  - 결과: 같은 기능을 세 가지 다른 방식으로 구현 → 비효율적
-
-- 도구 간 연결 문제
-  - AI 워크플로우에서는 여러 도구를 조합하여 복잡한 작업을 수행
-  - → 예시: "GitHub에서 이슈 목록을 가져와서, 각 이슈의 내용을 요약하고, 요약본을 Notion 데이터베이스에 저장"
-    - GitHub API → LLM 호출 → Notion API 순서로 세 도구를 사용
-    - 각 도구가 서로 다른 인터페이스를 사용하면 도구 간 데이터 전달·오류 처리 코드가 복잡해짐
-
-- 보안과 권한 관리 문제
-  - AI가 파일 시스템에 접근하거나 외부 API를 호출할 때, 어떤 작업은 허용하고 어떤 작업은 차단할지 제어해야 함
-  - → 예시: 파일을 읽는 것은 허용하지만 삭제는 허용하지 않거나, 특정 디렉토리 밖에는 접근 못 하게 해야 할 수 있음
-  - 각 AI 플랫폼마다 권한 모델이 다르면 동일한 보안 정책을 여러 플랫폼에 일관되게 적용하기 어려움
-
-### 3.1.2 Model Context Protocol의 등장
-
-- Model Context Protocol(MCP)
-  - Anthropic이 2024년 11월에 발표한 표준 프로토콜
-  - AI 모델과 외부 데이터/도구 간의 통신 방식을 통일
-  - "AI가 어떻게 외부 컨텍스트에 접근하는가"에 대한 공통 언어를 제공
-  - 웹 개발에서 HTTP가 클라이언트-서버 간 통신 표준이 된 것처럼, MCP는 AI와 외부 자원 간 통신 표준이 되려는 시도
-
-- 핵심 아이디어: "서버-클라이언트 아키텍처"
-  - **MCP 서버**: 외부 자원(파일 시스템, 데이터베이스, API 등)에 접근하는 로직을 구현
-  - **MCP 클라이언트**: AI 애플리케이션(ChatGPT, Claude Desktop, 커스텀 에이전트 등)이 클라이언트가 되어, 표준화된 프로토콜로 MCP 서버와 통신
-  - 하나의 MCP 서버를 구현하면 여러 AI 클라이언트에서 동일하게 사용 가능
-
-- MCP가 정의하는 세 가지 핵심 개념
-  - **도구(Tools)**: AI가 호출할 수 있는 함수
-    - 명확한 이름, 설명, 입력 스키마, 출력 형식을 가짐
-    - → 예시: `read_file` 도구는 "파일 경로를 입력받아 파일 내용을 반환"
-    - AI는 도구의 설명을 읽고 적절한 시점에 도구를 호출
-  - **리소스(Resources)**: AI가 읽을 수 있는 컨텍스트 데이터
-    - 도구와 달리 호출하지 않고 "조회"함
-    - → 예시: 프로젝트의 README 파일, 데이터베이스 스키마, API 문서 등
-    - AI는 리소스를 읽어 현재 상황을 이해하고 더 나은 판단을 내림
-  - **프롬프트(Prompts)**: 재사용 가능한 프롬프트 템플릿
-    - 특정 작업에 자주 사용되는 프롬프트를 MCP 서버에 등록
-    - AI 클라이언트에서 쉽게 불러와 사용 가능
-    - → 예시: "코드 리뷰 프롬프트", "버그 분석 프롬프트" 같은 템플릿을 서버에 두고 필요할 때 가져다 씀
-
-- 통신 방식: **JSON-RPC 2.0** 사용
-  - JSON-RPC(JSON Remote Procedure Call): 경량 원격 프로시저 호출 프로토콜
-  - HTTP나 WebSocket 위에서 동작 가능
-  - MCP 서버와 클라이언트는 JSON-RPC 메시지를 주고받으며 통신
-  - 표준 프로토콜을 사용하므로 다양한 언어와 플랫폼에서 MCP를 구현 가능
-
-### 3.1.3 MCP의 장점과 제약
-
-- 장점
-  - **플랫폼 독립성**
-    - 하나의 MCP 서버를 만들면 Claude Desktop, ChatGPT, 커스텀 에이전트 등 여러 클라이언트에서 동일하게 사용 가능
-    - 플랫폼마다 별도의 어댑터를 만들 필요 없음
-  - **재사용성**
-    - 자주 사용하는 기능(파일 읽기, 데이터베이스 조회, API 호출 등)을 MCP 서버로 구현하면 여러 프로젝트에서 재사용 가능
-    - 한 번 잘 만든 MCP 서버는 여러 팀과 프로젝트에서 공유할 수 있는 자산
-  - **보안 경계**
-    - MCP 서버는 독립적인 프로세스로 실행되므로 권한과 접근 제어를 명확히 할 수 있음
-    - AI가 파일 시스템에 무제한 접근하는 대신 MCP 서버가 허용된 작업만 수행하도록 제한 가능
-    - → 예시: 읽기 전용 파일 서버, 특정 디렉토리만 접근 가능한 서버 등
-  - **테스트 가능성**
-    - MCP 서버는 독립적인 컴포넌트이므로 AI 없이도 단독으로 테스트 가능
-    - 서버의 입출력이 명확히 정의되어 있으므로 단위 테스트를 작성하기 쉬움
-    - AI 에이전트 전체를 실행하지 않고도 특정 도구의 동작을 검증 가능
-  - **명확한 인터페이스**
-    - 도구와 리소스의 스키마가 명시적으로 정의됨
-    - AI가 어떤 기능을 사용할 수 있는지, 각 기능이 무엇을 하는지 명확히 알 수 있음
-    - AI의 도구 선택 정확도를 높이고 디버깅을 쉽게 만듦
-
-- ⚠ 제약
-  - **초기 학습 곡선**
-    - MCP 서버를 만들려면 JSON-RPC 프로토콜, 스키마 정의, 비동기 통신 등 새로운 개념을 배워야 함
-    - 간단한 스크립트를 작성하는 것보다 초기 투자 비용이 큼
-  - **오버헤드**
-    - MCP는 서버-클라이언트 구조이므로 프로세스 간 통신(IPC) 오버헤드가 있음
-    - 매우 빈번히 호출되는 간단한 함수는 직접 호출하는 것보다 느릴 수 있음
-    - 단, 대부분의 AI 워크플로우에서 네트워크 I/O나 LLM 호출 시간이 훨씬 크므로 MCP 오버헤드는 무시할 수 있는 수준
-  - **빠른 진화**
-    - MCP는 2024년 11월 발표 이후 빠르게 발전 중
-    - 2025년에만 네 차례의 스펙 개정이 이루어짐
-    - Tasks primitive 같은 일부 기능은 아직 실험 단계
-    - 새로운 기능을 도입할 때는 스펙 버전과 안정성 수준을 확인해야 함 (자세한 변경 이력은 3.2절 참고)
-  - **스펙과 구현의 격차**
-    - 주요 AI 플랫폼(Anthropic, OpenAI, Google, VS Code 등)이 MCP를 지원하지만, 각 플랫폼이 지원하는 스펙 버전과 기능 범위가 다를 수 있음
-    - 프로덕션 환경에서는 대상 플랫폼의 MCP 지원 범위를 확인해야 함
-
-- 종합 평가
-  - 이런 제약에도 불구하고, MCP는 AI 도구 생태계를 표준화하는 강력한 도구
-  - 특히 팀이나 조직 내에서 여러 AI 프로젝트를 진행할 때 도구를 일관되게 관리하고 재사용할 수 있어 효율성이 크게 향상
+- 2주차의 에이전트 스타터 프로젝트
+- Python 기초 문법
+- 가상환경과 `.env` 사용법
 
 ---
 
-## 3.2 MCP의 진화: 2025 스펙과 생태계
+## 3.1 왜 이제는 MCP만 알아서는 부족한가
 
-- MCP는 2024년 11월 첫 공개 이후 빠르게 발전
-  - 1년 만에 네 차례의 주요 스펙 개정
-  - 주요 AI 플랫폼이 속속 지원을 선언하면서 사실상의 업계 표준으로 자리 잡음
-- 이 절에서 다루는 내용
-  - 스펙의 진화 과정
-  - 2025-11-25 스펙의 핵심 변경 사항
-  - 생태계 현황
-  - 거버넌스 체계
+### 3.1.1 도구만 연결해도 일이 잘 안 되는 이유
 
-### 3.2.1 스펙 진화의 흐름
+- 에이전트에게 도구를 연결했다고 해서 자동으로 좋은 결과가 나오지는 않음
+- 이유:
+  - 어떤 도구를 언제 써야 하는지 판단이 불명확할 수 있음
+  - 출력 형식이 들쭉날쭉할 수 있음
+  - 검증 절차 없이 결과를 바로 수락할 수 있음
+- 즉, 도구 연결만으로는 "할 수 있는 일"이 늘어날 뿐이고, "잘 일하는 방식"까지 보장하지는 않음
 
-**표 3.1** MCP 스펙 버전별 주요 변경
+### 3.1.2 규칙 없는 에이전트의 한계
 
-| 버전 | 주요 추가 사항 |
-|------|---------------|
-| 2024-11-05 | 최초 공개. Tools, Resources, Prompts, STDIO/SSE 전송 |
-| 2025-03-26 | Streamable HTTP 전송(SSE 대체), Tool Annotations(readOnlyHint 등) |
-| 2025-06-18 | Structured Tool Outputs(outputSchema), Elicitation(폼 모드), Audio 콘텐츠 타입 |
-| 2025-11-25 | Tasks primitive(비동기 작업), Elicitation URL 모드, Server Discovery 제안 |
+- 규칙이 없으면 에이전트는 같은 요청에도 매번 다른 방식으로 행동할 수 있음
+- 흔한 문제:
+  - 출력 위치가 바뀜
+  - 파일 이름이 일관되지 않음
+  - 검증 없이 바로 종료함
+  - 위험한 동작을 무심코 시도함
+- 그래서 **도구 연결(MCP)**과 함께 **작업 규칙(Skills / Instructions)**이 필요함
 
-- 초기 버전: 도구·리소스·프롬프트라는 세 가지 핵심 개념과 STDIO/SSE 전송 방식을 정의
-- 이후: 실무 피드백을 반영하여 전송 계층(Streamable HTTP), 도구 출력의 구조화, 비동기 작업 지원 등이 차례로 추가
+### 3.1.3 제품마다 확장 방식이 다른 현실
 
-### 3.2.2 2025-11-25 스펙 핵심 변경
-
-- 2025년 11월 스펙은 네 가지 중요한 기능을 도입
-
-**Tasks Primitive — 비동기 "call-now, fetch-later" 패턴**
-
-- 배경: 기존 MCP 도구 호출은 동기 방식
-  - 클라이언트가 요청을 보내면 서버가 처리를 완료할 때까지 기다려야 했음
-  - 대용량 데이터 처리, 외부 API 폴링, 사람의 승인이 필요한 작업 등 오래 걸리는 작업에는 부적합
-- 해결 방식: Tasks primitive
-  - 클라이언트가 도구를 호출하면 서버는 즉시 태스크 ID를 반환
-  - 클라이언트는 나중에 해당 ID로 결과를 조회 (비동기 조회)
-  - 태스크의 다섯 가지 상태:
-    - `working`: 처리 중
-    - `input_required`: 추가 입력 대기
-    - `completed`: 완료
-    - `failed`: 실패
-    - `cancelled`: 취소
-- ⚠ 2025-11-25 스펙에서 실험적(experimental) 기능으로 도입, 향후 안정 버전에서 정식 채택 예정
-
-**Structured Tool Outputs — outputSchema**
-
-- 배경: 2025-06-18 스펙에서 도입되어 2025-11-25에서 정제
-  - 기존에는 도구의 입력만 JSON Schema로 정의할 수 있었고, 출력은 자유 형식 텍스트
-- 변경 내용
-  - `outputSchema`를 사용하면 도구의 출력 형식도 JSON Schema로 명시 가능
-  - 서버는 `outputSchema`를 선언한 도구에 대해 `structuredContent` 필드로 구조화된 결과를 반환
-- 효과
-  - 도구 체이닝(한 도구의 출력을 다른 도구의 입력으로 사용)의 신뢰성을 크게 향상
-
-**Elicitation — 사용자 입력 요청**
-
-- 정의: 서버가 작업 도중 사용자에게 직접 입력을 요청할 수 있는 메커니즘
-- 진화 과정
-  - 2025-06-18: 폼 모드(JSON Schema 기반 입력 폼) 도입
-  - 2025-11-25: URL 모드(브라우저 기반 인증 등) 추가
-- → 예시: OAuth 인증이 필요한 MCP 서버가 사용자에게 인증 URL을 제시하고 완료를 기다릴 수 있음
-
-**Server Discovery — .well-known/mcp.json**
-
-- 정의: 원격 MCP 서버를 자동으로 발견하기 위한 제안
-- 동작 방식
-  - 웹사이트가 `/.well-known/mcp.json` 경로에 MCP 서버 정보를 게시
-  - 클라이언트가 이를 발견하고 연결 가능
-- ⚠ 2025-11-25 기준으로 아직 정식 스펙에 포함되지 않은 제안(proposal) 단계이며, 커뮤니티에서 논의 진행 중
-
-### 3.2.3 MCP 생태계 현황
-
-- 2026년 3월 기준으로 MCP 생태계는 계속 빠르게 성장 중
-  - 다만 "공개 서버 수"나 "SDK 다운로드 수" 같은 정량 지표는 집계 방식과 시점에 따라 크게 달라진다
-  - 따라서 실무 문서에서는 변동이 큰 숫자보다 "어떤 제품 표면이 어떤 방식으로 MCP를 지원하는가"를 추적하는 편이 더 중요하다
-
-**표 3.2** 주요 플랫폼 MCP 지원 현황
-
-| 시점 | 플랫폼 | 비고 |
-|------|--------|------|
-| 2024년 11월 | Anthropic Claude Desktop | MCP 최초 공개와 동시에 네이티브 지원 |
-| 2025년 초 | Cursor | IDE 통합 |
-| 2025년 3월 | OpenAI Agents 플랫폼 | Agents SDK 공개 |
-| 2025년 5월 | OpenAI Responses API | 원격 MCP 서버 지원 |
-| 2025년 6월 | ChatGPT developer mode(beta) | 원격 MCP 클라이언트 지원 |
-| 2025년 6월 | Google Gemini CLI | MCP 기본 지원 |
-| 2025년 7월 | VS Code (GA) | GitHub Copilot Agent Mode와 통합 |
-| 2025년 9월 | MCP Registry (Preview) | 서버 발견·인증 서비스 |
-
-- 의미
-  - Anthropic, OpenAI, Google 계열 제품이 모두 MCP를 채택하기 시작했다
-  - 다만 "지원한다"는 말이 곧바로 동일한 전송 방식, 동일한 스펙 버전, 동일한 권한 모델을 뜻하지는 않는다
-  - 따라서 하나의 MCP 서버를 여러 플랫폼에서 쓰려면 각 클라이언트의 지원 범위(STDIO/remote MCP, approval 방식, 인증 방식)를 별도 확인해야 한다
-
-### 3.2.4 MCP 거버넌스: AAIF
-
-- 중요한 이정표: 2025년 12월 9일
-  - Anthropic, Block(구 Square), OpenAI가 공동으로 **AAIF(AI Alliance & Interoperability Foundation)** 설립
-  - Linux Foundation 산하의 Directed Fund로 운영하기로 발표
-  - AAIF 플래티넘 회원사: AWS, Google, Microsoft 포함
-- 의미
-  - MCP가 특정 기업에 종속되지 않는 개방형 표준으로 발전하겠다는 의지를 보여줌
-  - AAIF는 MCP 스펙의 발전 방향, 호환성 인증, 생태계 거버넌스를 담당
-- 개발자 관점에서의 의미
-  - MCP를 학습하고 투자하는 것이 특정 플랫폼에 대한 종속이 아님
-  - 업계 공통 역량을 쌓는 것임
+- 2026년의 도구 생태계는 아직 완전히 하나로 통일되어 있지 않음
+- 같은 기능이라도 제품마다 붙이는 방식이 다를 수 있음
+  - 어떤 제품은 MCP 서버를 직접 붙임
+  - 어떤 제품은 skill 파일이나 instruction 파일을 함께 사용함
+  - 어떤 제품은 hooks나 settings로 기본 동작을 고정함
+  - 어떤 제품은 memory나 spaces로 지속 문맥을 유지함
+  - 어떤 제품은 plugin, app, connector 같은 이름으로 기능을 포장함
+- 따라서 실무 역량은 "한 제품의 메뉴를 외우는 것"이 아니라, 각 층위의 역할을 구분하는 데서 시작함
 
 ---
 
-## 3.3 MCP 서버의 기본 구조
+## 3.2 MCP, Skills, Plugins, Instructions, Hooks, Memory의 역할 구분
 
-- MCP 서버: "AI가 호출할 수 있는 기능을 제공하는 프로그램"
-  - 표준 입출력(STDIO) 또는 HTTP를 통해 클라이언트와 통신
-  - 로컬 환경에서는 STDIO 방식이 간단하고 효율적
-  - 이 장에서는 STDIO 기반 MCP 서버를 중심으로 설명
+### 3.2.1 MCP
 
-### 3.3.1 STDIO 통신 방식
+- MCP(Model Context Protocol)는 에이전트가 외부 도구와 데이터를 사용할 수 있게 하는 표준 인터페이스
+- 질문으로 바꾸면:
+  - "에이전트가 무엇을 호출할 수 있는가?"
+- 대표 사례:
+  - 파일 읽기
+  - GitHub 이슈 조회
+  - 데이터베이스 질의
+  - 외부 API 호출
 
-- STDIO(Standard Input/Output) 통신
-  - 프로세스 간 통신(IPC, Inter-Process Communication)의 가장 간단한 형태
-  - MCP 클라이언트는 서버 프로세스를 실행
-    - 표준 입력(stdin)으로 요청을 보냄
-    - 표준 출력(stdout)에서 응답을 받음
-  - 서버는 stdin에서 JSON-RPC 요청을 읽고, 처리 결과를 stdout으로 출력
+### 3.2.2 Skills / Instructions
 
-- STDIO 방식의 장점
-  - **간단한 설정**
-    - 네트워크 포트를 열거나 HTTP 서버를 구성할 필요 없음
-    - 단순히 프로세스를 실행하면 됨
-    - 방화벽이나 네트워크 설정에 영향받지 않음
-  - **보안**
-    - 프로세스는 클라이언트의 권한으로 실행됨
-    - 서버가 수행할 수 있는 작업이 자동으로 제한
-    - 별도의 인증이나 권한 부여 메커니즘이 필요 없음
-  - **로컬 최적화**
-    - 프로세스 간 통신은 네트워크 통신보다 빠르고 안정적
-    - 로컬 개발 환경에서 사용하기에 적합
+- Skills 또는 Instructions는 에이전트가 작업할 때 따라야 할 규칙과 절차를 담음
+- 질문으로 바꾸면:
+  - "에이전트가 어떤 순서와 기준으로 일해야 하는가?"
+- 대표 사례:
+  - 출력은 반드시 `output/`에 저장
+  - 위험한 명령은 사용자 승인 없이 실행하지 않음
+  - 테스트를 먼저 실행하고 실패 시 원인을 기록
 
-- STDIO 통신의 동작 흐름
-  1. 클라이언트가 MCP 서버 프로세스를 실행 (예: `python3 mcp_server.py`)
-  2. 클라이언트가 서버의 stdin으로 JSON-RPC 요청을 전송
-  3. 서버가 stdin에서 요청을 읽고 파싱
-  4. 서버가 요청을 처리하고 결과를 생성
-  5. 서버가 stdout으로 JSON-RPC 응답을 출력
-  6. 클라이언트가 stdout에서 응답을 읽고 파싱
+### 3.2.3 Plugins / Apps / Connectors
 
-- 메시지 형식
-  - 각 메시지는 한 줄의 JSON으로 표현
-  - 줄바꿈 문자(`\n`)로 구분 → "줄 단위 JSON(line-delimited JSON)"이라고 함
-  - → 예시:
+- plugin, app, connector는 제품 안에서 기능을 배포하거나 연결하는 표면인 경우가 많음
+- 질문으로 바꾸면:
+  - "이 기능을 제품 안에서 어떤 형태로 붙이고 배포할 것인가?"
+- 이름은 다르지만 대체로 다음 둘 중 하나를 감쌈
+  - 도구 연결
+  - 사용자용 기능 패키징
 
-```json
-{"jsonrpc":"2.0","method":"tools/list","id":1}
-{"jsonrpc":"2.0","result":{"tools":[...]},"id":1}
-```
+### 3.2.4 셋을 혼동하면 생기는 문제
 
-  - 첫 줄: 클라이언트의 요청(도구 목록 조회)
-  - 두 번째 줄: 서버의 응답(도구 목록)
+- MCP를 배웠다고 해서 Skills까지 배운 것은 아님
+- skill 파일을 만들었다고 해서 외부 도구 연결이 생기는 것도 아님
+- plugin을 설치했다고 해서 표준화된 도구 인터페이스를 이해한 것도 아님
 
-### 3.3.2 JSON-RPC 2.0 프로토콜
+### 3.2.5 Instructions / Rules / Settings
 
-- MCP는 JSON-RPC 2.0 프로토콜을 사용
-  - JSON-RPC: JSON으로 인코딩된 원격 프로시저 호출(Remote Procedure Call) 프로토콜
-  - 간단하면서도 강력
-  - 스펙 참고: https://www.jsonrpc.org/specification
+- 이 계층은 skill보다 더 넓은 기본 행동 규칙을 담는 경우가 많음
+- 예:
+  - 항상 한국어로 응답
+  - 파괴적 명령은 승인 전 금지
+  - 결과를 항상 특정 폴더에 저장
 
-- JSON-RPC 요청 필드
-  - `jsonrpc`: 프로토콜 버전, 항상 `"2.0"`
-  - `method`: 호출할 메서드 이름 (예: `"tools/list"`, `"tools/call"`)
-  - `params`: 메서드에 전달할 매개변수 (객체 또는 배열)
-  - `id`: 요청 식별자 (숫자 또는 문자열, 응답과 매칭하기 위해 사용)
+### 3.2.6 Hooks
 
-- JSON-RPC 응답 필드
-  - `jsonrpc`: 프로토콜 버전, 항상 `"2.0"`
-  - `result`: 성공 시 결과 (오류 시 생략)
-  - `error`: 오류 시 오류 정보 (성공 시 생략)
-  - `id`: 요청의 `id`와 동일한 값
+- hook은 특정 이벤트가 발생했을 때 자동으로 동작하는 연결점
+- 예:
+  - 명령 실행 직전 확인
+  - 파일 수정 뒤 포맷 검사
+  - 완료 후 테스트 실행
 
-- → 예시: 도구 목록을 조회하는 요청과 응답
+### 3.2.7 Memory / Spaces / Project Memory
 
-```json
-// 요청
-{
-  "jsonrpc": "2.0",
-  "method": "tools/list",
-  "id": 1
-}
+- memory 계층은 프로젝트 문맥을 지속적으로 유지함
+- 예:
+  - 이 저장소의 출력 위치는 항상 `output/`
+  - 기본 테스트 도구는 pytest
+  - 위험한 명령은 승인 전 금지
 
-// 응답
-{
-  "jsonrpc": "2.0",
-  "result": {
-    "tools": [
-      {
-        "name": "read_file",
-        "description": "파일의 내용을 읽습니다",
-        "inputSchema": {
-          "type": "object",
-          "properties": {
-            "path": {"type": "string", "description": "읽을 파일의 경로"}
-          },
-          "required": ["path"]
-        }
-      }
-    ]
-  },
-  "id": 1
-}
-```
+**표 3.1** 주요 개념의 차이
 
-- 오류가 발생한 경우 응답 예시:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "error": {
-    "code": -32602,
-    "message": "Invalid params",
-    "data": "Missing required parameter: path"
-  },
-  "id": 1
-}
-```
-
-- JSON-RPC 2.0 표준 오류 코드
-  - `-32700`: Parse error (JSON 파싱 실패)
-  - `-32600`: Invalid Request (요청 형식 오류)
-  - `-32601`: Method not found (메서드 없음)
-  - `-32602`: Invalid params (매개변수 오류)
-  - `-32603`: Internal error (내부 오류)
-  - `-32000 ~ -32099`: 애플리케이션 정의 오류 범위
-
-### 3.3.3 MCP 서버의 생명주기
-
-- MCP 서버의 세 단계 생명주기
-
-- **1. 초기화 단계**
-  - 클라이언트가 서버를 실행
-  - `initialize` 메서드를 호출하여 서버의 기능(지원하는 도구, 리소스, 프롬프트)을 확인
-  - 서버는 자신이 제공하는 기능 목록을 반환
-
-```python
-# initialize 요청 처리
-def handle_initialize(params):
-    return {
-        "protocolVersion": "2024-11-05",
-        "serverInfo": {
-            "name": "example-mcp-server",
-            "version": "1.0.0"
-        },
-        "capabilities": {
-            "tools": {},
-            "resources": {}
-        }
-    }
-```
-
-  _전체 코드는 practice/chapter3/code/3-2-minimal-server.py 참고_
-
-- **2. 작업 단계**
-  - 클라이언트가 도구를 호출하거나 리소스를 조회
-  - 서버는 요청을 처리하고 결과를 반환
-  - 이 단계가 반복됨
-
-- **3. 종료 단계**
-  - 클라이언트가 작업을 완료하면 서버 프로세스를 종료
-  - 서버는 리소스를 정리하고 프로세스를 종료
-
-- 상태 관리 원칙
-  - 서버는 상태를 유지할 수 있음
-    - → 예시: 데이터베이스 연결을 초기화 단계에서 생성하고, 작업 단계에서 재사용하고, 종료 단계에서 닫을 수 있음
-  - 하지만 가능하면 상태를 최소화하는 것이 좋음
-    - 이유: 무상태(stateless) 서버는 테스트와 디버깅이 쉽고 멀티 클라이언트 환경에서도 안전
-
-### 3.3.4 최소 MCP 서버 구현
-
-- 가장 간단한 MCP 서버: 하나의 도구만 제공
-- → 예시: "현재 시각을 반환하는 도구"를 제공하는 최소 서버
-
-```python
-import json
-import sys
-from datetime import datetime
-
-def handle_tools_list():
-    return {
-        "tools": [{
-            "name": "get_current_time",
-            "description": "현재 시각을 반환합니다",
-            "inputSchema": {"type": "object", "properties": {}}
-        }]
-    }
-```
-
-  _전체 코드는 practice/chapter3/code/3-2-minimal-server.py 참고_
-
-- 동작 방식
-  - stdin에서 JSON-RPC 요청을 읽음
-  - 메서드에 따라 적절한 핸들러를 호출
-  - 결과를 stdout으로 출력
-- ⚠ 실제 프로덕션 환경에서는 오류 처리, 로깅, 입력 검증 등을 추가해야 함
+| 개념 | 핵심 질문 | 역할 |
+|------|----------|------|
+| MCP | 무엇을 호출할 수 있는가 | 도구 연결 |
+| Skills / Instructions | 어떻게 일하게 할 것인가 | 작업 규칙 |
+| Plugins / Apps / Connectors | 제품에 어떻게 붙일 것인가 | 확장/패키징 |
+| Hooks | 언제 자동 검사/실행할 것인가 | 이벤트 연결 |
+| Memory / Spaces | 무엇을 계속 기억하게 할 것인가 | 지속 문맥 |
 
 ---
 
-## 3.4 도구(Tool) 설계 원칙
+## 3.3 MCP 빠른 이해
 
-- MCP 도구: "AI가 호출할 수 있는 함수"
-- 도구를 잘 설계하려면 명확한 입출력, 적절한 에러 처리, 합리적인 제약 조건이 필요
+### 3.3.1 MCP가 해결하는 문제
 
-### 3.4.1 도구의 구성 요소
+- AI 도구마다 외부 시스템 연결 방식이 제각각이면 재사용이 어려움
+- 같은 기능을 플랫폼마다 다시 구현해야 함
+- MCP는 이 문제를 줄이기 위해 도구 연결 방식을 표준화하려는 접근임
 
-- MCP 도구를 구성하는 네 가지 요소
+### 3.3.2 Tools, Resources, Prompts
 
-- **이름(name)**
-  - 도구를 식별하는 고유한 문자열
-  - 간결하면서도 기능을 명확히 표현해야 함
-  - 관례: `snake_case` 사용
-  - → 예시: `read_file`, `search_database`, `send_email`
+- MCP는 보통 세 가지 요소를 중심으로 설명됨
+  - **Tools**: AI가 호출하는 함수
+  - **Resources**: AI가 읽는 컨텍스트 데이터
+  - **Prompts**: 재사용 가능한 프롬프트 자산
 
-- **설명(description)**
-  - 도구가 무엇을 하는지 자연어로 설명
-  - AI는 이 설명을 읽고 적절한 도구를 선택
-  - 명확하고 구체적이어야 함
-  - → 예시: "파일을 읽습니다"(나쁜 예) vs "지정된 경로의 파일 내용을 UTF-8 인코딩으로 읽어 문자열로 반환합니다"(좋은 예)
+- 이 수업에서는 먼저 **Tools** 중심으로 실습함
+- 이유:
+  - 가장 체감이 빠름
+  - 도구 호출 로그를 확인하기 쉬움
+  - 이후 LangChain, LangGraph와 연결하기 좋음
 
-- **입력 스키마(inputSchema)**
-  - 도구가 받는 매개변수의 타입과 제약을 정의
-  - JSON Schema 형식 사용
-  - → 예시:
+### 3.3.3 STDIO와 Remote MCP
 
-```json
-{
-  "type": "object",
-  "properties": {
-    "path": {
-      "type": "string",
-      "description": "읽을 파일의 절대 또는 상대 경로"
-    },
-    "encoding": {
-      "type": "string",
-      "description": "파일 인코딩 (기본값: utf-8)",
-      "default": "utf-8"
-    }
-  },
-  "required": ["path"]
-}
-```
+- 로컬 실습에서는 보통 STDIO 기반 MCP를 먼저 접함
+  - 클라이언트가 서버 프로세스를 실행
+  - 표준 입력/출력으로 메시지를 주고받음
+- 원격 MCP는 네트워크를 통해 서버에 연결함
+  - 인증과 권한 관리가 더 중요해짐
 
-  - `path`: 필수 매개변수
-  - `encoding`: 선택적 매개변수
+### 3.3.4 승인, 권한, 보안 경계
 
-- **출력 형식**
-  - MCP 도구의 출력은 항상 JSON 직렬화 가능한 값이어야 함
-  - 문자열, 숫자, 배열, 객체 등을 반환 가능
-  - 복잡한 객체는 명확한 구조를 가져야 함
-
-### 3.4.2 명확한 입출력 설계
-
-- 도구의 입출력은 AI와 개발자 모두에게 명확해야 함
-- 따라야 할 원칙들
-
-- **단일 책임**
-  - 하나의 도구는 하나의 명확한 작업을 수행
-  - ⚠ "파일을 읽고 요약하고 저장한다"는 너무 많은 책임
-  - 대신: `read_file`, `summarize_text`, `write_file` 세 개의 도구로 분리
-
-- **타입 명시**
-  - 매개변수와 반환값의 타입을 명확히 정의
-  - JSON Schema를 최대한 활용
-    - 문자열 패턴: `pattern`
-    - 숫자 범위: `minimum`, `maximum`
-    - 배열 길이: `minItems`, `maxItems`
-
-- **기본값 제공**
-  - 선택적 매개변수에는 합리적인 기본값을 제공
-  - → 예시: 파일 인코딩은 `"utf-8"`을 기본값으로 함
-  - 기본값을 문서화하여 AI가 생략할 수 있음을 알림
-
-- **예시 포함**
-  - 도구 설명에 사용 예시를 포함하면 AI가 올바르게 사용할 가능성이 높아짐
-  - → 예시:
-
-```json
-{
-  "name": "search_files",
-  "description": "파일명 패턴으로 파일을 검색합니다. 예: pattern='*.py'는 모든 Python 파일을 찾습니다.",
-  "inputSchema": {...}
-}
-```
-
-- **오류 정보**
-  - 오류 발생 시 구체적인 정보를 제공
-  - → 예시: "Error"(나쁜 예) vs "File not found: /path/to/file.txt"(좋은 예)
-  - 오류 메시지는 AI가 문제를 이해하고 수정할 수 있을 만큼 구체적이어야 함
-
-### 3.4.3 에러 처리 전략
-
-- MCP 도구가 만날 수 있는 다양한 오류 상황
-  - 파일이 없거나, 권한이 없거나, 네트워크가 끊기거나, 입력이 잘못된 경우
-- 에러를 잘 처리하면
-  - AI가 문제를 자동으로 해결하거나
-  - 사용자에게 명확한 안내를 제공할 수 있음
-
-- **입력 검증**
-  - 도구를 실행하기 전에 입력을 검증
-  - JSON Schema가 타입을 검증하지만, 비즈니스 로직 검증은 도구 코드에서 수행
-  - → 예시: 파일 경로가 허용된 디렉토리 내에 있는지, 파일 크기가 제한을 초과하지 않는지 확인
-
-```python
-def read_file(path: str) -> str:
-    if not path.startswith("/allowed/dir"):
-        raise ValueError("Access denied")
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"File not found: {path}")
-    return open(path, "r", encoding="utf-8").read()
-```
-
-  _전체 코드는 practice/chapter3/code/3-3-tool-validation.py 참고_
-
-- **명확한 오류 메시지**
-  - 오류 메시지는 무엇이 잘못되었고 어떻게 고치면 되는지 명시
-  - → 예시: "Invalid input"(나쁜 예) vs "Parameter 'count' must be between 1 and 100, got 150"(좋은 예)
-
-- **오류 분류**: 복구 가능/불가능으로 분류
-  - 일시적 네트워크 오류: 재시도로 해결 가능
-  - 권한 오류: 재시도해도 소용없음
-  - 오류 코드나 타입으로 이를 구분하면 AI가 적절한 대응을 할 수 있음
-
-```python
-class RetryableError(Exception):
-    """재시도 가능한 오류"""
-    pass
-
-class PermanentError(Exception):
-    """재시도 불가능한 오류"""
-    pass
-```
-
-- **부분 실패 처리**
-  - 배치 작업에서 일부 항목이 실패할 수 있음
-  - 성공한 항목과 실패한 항목을 구분하여 반환
-
-```python
-{
-  "processed": 8,
-  "failed": 2,
-  "errors": [{"item": "file3.txt", "error": "Permission denied"}]
-}
-```
-
-  _전체 코드는 practice/chapter3/code/3-3-tool-validation.py 참고_
-
-  - 효과: AI는 성공한 부분을 활용하고, 실패한 부분만 다시 시도할 수 있음
-
-### 3.4.4 제약 조건 설계
-
-- MCP 도구는 무제한으로 동작하면 안 됨
-- 적절한 제약을 설정하여 안전성과 성능을 보장
-
-- **리소스 제한**
-  - 메모리, 시간, 파일 크기 등에 제한을 둠
-  - → 예시: 파일 읽기 도구는 최대 10MB까지만 읽도록 제한
-  - 큰 파일은 스트리밍이나 청크(chunk, 덩어리) 단위 읽기를 사용
-
-```python
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
-
-def read_file(path: str) -> str:
-    if os.path.getsize(path) > MAX_FILE_SIZE:
-        raise ValueError(f"File too large")
-    return open(path, "r").read()
-```
-
-  _전체 코드는 practice/chapter3/code/3-3-tool-validation.py 참고_
-
-- **접근 제어**
-  - 도구가 접근할 수 있는 범위를 제한
-  - 파일 시스템 도구: 특정 디렉토리 내부만 접근
-  - 데이터베이스 도구: 읽기 전용 권한만 사용
-
-- **타임아웃**
-  - 외부 시스템을 호출하는 도구는 타임아웃을 설정
-  - 네트워크 요청, 데이터베이스 쿼리, 외부 프로세스 실행 등은 무한정 대기하지 않도록 함
-
-```python
-import requests
-
-def call_api(url: str) -> dict:
-    response = requests.get(url, timeout=10)
-    response.raise_for_status()
-    return response.json()
-```
-
-  _전체 코드는 practice/chapter3/code/3-3-tool-validation.py 참고_
-
-- **속도 제한(Rate Limiting)**
-  - API 호출이나 비용이 드는 작업은 속도 제한을 적용
-  - → 예시: 외부 API를 호출하는 도구는 분당 최대 60회로 제한
-
-- **검증 규칙**
-  - 입력이 위험한 패턴을 포함하지 않는지 검증
-  - SQL 쿼리 도구: DROP, DELETE 같은 위험한 키워드를 차단
-  - 파일 경로: `..`(상위 디렉토리 접근)를 금지
+- MCP를 쓰는 이유 중 하나는 무제한 접근이 아니라 **제한된 접근**을 만들기 위해서임
+- 예를 들어:
+  - 파일 읽기는 허용
+  - 파일 삭제는 금지
+  - 특정 폴더 밖 접근은 금지
+- 따라서 좋은 MCP 서버는 "많이 할 수 있는 서버"보다 "무엇을 못 하게 할지 분명한 서버"에 가까움
 
 ---
 
-## 3.5 리소스(Resource) 설계
+## 3.4 실습 1: 기존 MCP 서버 연결해서 써 보기
 
-- 리소스: AI가 읽을 수 있는 컨텍스트 데이터 (컨텍스트: 현재 상황·맥락에 관한 정보)
-  - 도구와 달리 "실행"하지 않고 "조회"함
-  - AI가 현재 상황을 이해하고 더 나은 판단을 내리는 데 도움을 줌
+### 실습 목표
 
-### 3.5.1 리소스의 역할
+- GitHub Copilot에서 기존 MCP 서버를 실제로 연결하고 호출한다
 
-- 리소스의 사용 용도
+### 수행 단계
 
-- **문서 제공**
-  - 프로젝트의 README, API 문서, 데이터베이스 스키마 등을 리소스로 제공
-  - AI가 프로젝트 구조를 이해하고 적절한 코드를 생성할 수 있음
+1. 사용할 MCP 서버 하나를 고른다
+   - 예: GitHub MCP server, 파일 시스템 계열, 간단한 유틸리티 서버
+2. GitHub Copilot 환경에 서버를 등록한다
+3. 도구를 2회 이상 호출한다
+4. 입력과 출력을 기록한다
+5. 실패 사례가 있으면 원인을 메모한다
 
-- **상태 공유**
-  - 현재 작업의 상태, 설정, 환경 정보를 리소스로 노출
-  - AI가 컨텍스트를 유지하면서 작업을 진행할 수 있음
-  - → 예시: 현재 Git 브랜치, 환경 변수, 실행 로그 등
+### GitHub Copilot 최신 실습 방법
 
-- **데이터 접근**
-  - 데이터베이스 레코드, 파일 내용, API 응답 등을 리소스로 제공
-  - AI가 도구를 호출하지 않고도 데이터를 참조 가능
-  - 읽기 전용 접근이 필요한 경우 리소스가 적합
+- VS Code에서 MCP 서버를 쓰는 최신 공식 흐름은 다음 두 가지 중 하나임
+  - MCP Servers Marketplace에서 서버 설치
+  - 저장소 또는 설정 파일에 MCP 구성 추가
+- 수업에서는 입문 난도를 낮추기 위해 **Marketplace 또는 기본 제공 GitHub MCP server**부터 시작하는 것을 권장함
 
-- **템플릿 제공**
-  - 자주 사용하는 코드 템플릿, 설정 파일 예시, 프롬프트 템플릿 등을 리소스로 제공
-  - AI가 일관된 형식을 따를 수 있음
+### GitHub Copilot 실습 예시
 
-- 리소스는 도구보다 경량
-  - 도구: 실행 시마다 계산이나 I/O가 발생
-  - 리소스: 미리 준비된 데이터를 단순히 반환
-  - 자주 참조되는 정보는 리소스로 제공하는 것이 효율적
+1. VS Code에서 확장 패널을 연다
+2. MCP Server 필터를 사용해 필요한 서버를 찾는다
+3. `github` 서버를 설치하거나 이미 구성된 서버를 확인한다
+4. Copilot Chat에서 **Agent mode**를 연다
+5. 다음과 같이 요청한다
 
-### 3.5.2 리소스 스키마 정의
-
-- MCP 리소스를 구성하는 필드들
-
-- **uri** (필수)
-  - 리소스를 식별하는 URI (Uniform Resource Identifier, 통일 자원 식별자)
-  - 관례: `<프로토콜>://<경로>` 형식
-  - → 예시: `file:///project/README.md`, `db://schema/users`, `config://settings`
-
-- **name** (선택적)
-  - 사람이 읽을 수 있는 리소스 이름
-
-- **description** (선택적)
-  - 리소스가 무엇을 포함하는지 설명
-
-- **mimeType** (선택적)
-  - 리소스 내용의 MIME 타입 (예: `text/plain`, `application/json`)
-
-- → 예시: 리소스 목록을 조회하는 요청과 응답
-
-```json
-// 요청
-{
-  "jsonrpc": "2.0",
-  "method": "resources/list",
-  "id": 2
-}
-
-// 응답
-{
-  "jsonrpc": "2.0",
-  "result": {
-    "resources": [
-      {
-        "uri": "file:///project/README.md",
-        "name": "Project README",
-        "mimeType": "text/markdown"
-      },
-      {
-        "uri": "config://database",
-        "name": "Database Configuration",
-        "mimeType": "application/json"
-      }
-    ]
-  },
-  "id": 2
-}
+```text
+현재 저장소의 최근 열린 이슈를 확인하고, week3 실습에 도움이 될 만한 항목을 요약해줘.
+가능하면 MCP 도구를 사용해줘.
 ```
 
-- → 예시: 특정 리소스의 내용을 읽는 요청과 응답
+6. MCP 도구가 실제로 호출되었는지 확인한다
 
-```json
-// 요청
-{
-  "jsonrpc": "2.0",
-  "method": "resources/read",
-  "params": {
-    "uri": "file:///project/README.md"
-  },
-  "id": 3
-}
+### 관찰 포인트
 
-// 응답
-{
-  "jsonrpc": "2.0",
-  "result": {
-    "contents": [
-      {
-        "uri": "file:///project/README.md",
-        "mimeType": "text/markdown",
-        "text": "# My Project\n\nThis is a sample project..."
-      }
-    ]
-  },
-  "id": 3
-}
+- 어떤 설명이 도구 선택에 영향을 주는가
+- 승인 요청은 언제 나타나는가
+- 결과를 그대로 믿으면 위험한 지점은 어디인가
+- 출력이 실제로 유용한가, 아니면 후처리가 더 필요한가
+
+### 결과 기록 예시
+
+```markdown
+- 호출 도구: read_file
+- 입력: path=docs/notes.md
+- 결과: 파일 내용 정상 반환
+- 검증: 실제 파일과 내용 비교 완료
+- 관찰: 설명이 짧아도 도구 선택은 잘 되었으나, 경로 오입력 시 오류 메시지가 불명확했음
 ```
-
-### 3.5.3 정적 리소스 vs 동적 리소스
-
-- 리소스는 정적이거나 동적일 수 있음
-
-- **정적 리소스**
-  - 내용이 거의 변하지 않는 리소스
-  - → 예시: README 파일, API 문서, 설정 템플릿
-  - 서버 시작 시 한 번 읽고 캐시(cache, 임시 저장) 가능
-
-- **동적 리소스**
-  - 실행 시점마다 내용이 달라지는 리소스
-  - → 예시: 현재 시각, 로그 파일, 데이터베이스 상태
-  - 매번 조회 시 최신 값을 반환
-
-- 동적 리소스와 도구의 차이
-  - 동적 리소스는 도구와 비슷해 보이지만 차이가 있음
-  - 도구: "작업을 수행"
-  - 리소스: "정보를 제공"
-  - → 예시: `get_current_time`은 도구가 아니라 리소스로 구현하는 것이 적합
-    - 이유: 시각을 "가져오는" 것은 작업이 아니라 정보 조회이기 때문
-
-```python
-# 리소스로 구현
-resources = {
-    "time://current": lambda: datetime.now().isoformat()
-}
-
-def handle_resources_read(uri):
-    if uri in resources:
-        content = resources[uri]()
-        return {"text": content, "mimeType": "text/plain"}
-    else:
-        raise ValueError(f"Resource not found: {uri}")
-```
-
-  _전체 코드는 practice/chapter3/code/3-4-resource-server.py 참고_
-
-### 3.5.4 리소스 vs 도구 선택 기준
-
-- 언제 리소스를 쓰고 언제 도구를 써야 할지 판단하는 기준
-
-- **읽기 전용이면 리소스**
-  - 데이터를 읽기만 하고 수정하지 않으면 리소스가 적합
-  - → 예시: 파일 읽기, 데이터베이스 조회(SELECT), 로그 확인
-
-- **부작용(side effect)이 있으면 도구**
-  - 외부 상태를 변경하거나 비용이 드는 작업은 도구로 구현
-  - → 예시: 파일 쓰기, 데이터베이스 변경(INSERT/UPDATE/DELETE), API 호출, 이메일 발송
-
-- **빈번한 참조는 리소스**
-  - AI가 자주 참조하는 정보는 리소스로 제공
-  - 이유: 매번 도구를 호출하는 오버헤드를 줄일 수 있음
-
-- **복잡한 로직은 도구**
-  - 여러 단계의 처리가 필요하거나 매개변수가 많으면 도구가 적합
-  - 리소스는 간단한 조회에 사용
 
 ---
 
-## 3.6 실습: 최소 MCP 서버 구현
+## 3.5 실습 2: Skill / Instruction 파일 작성
 
-- 배운 내용을 바탕으로 최소 MCP 서버를 구현
-- 이 서버는 두 가지 도구와 하나의 리소스를 제공
+### 실습 목표
 
-### 3.6.1 요구사항 정의
+- 같은 작업을 "규칙 없이" 했을 때와 "규칙 있게" 했을 때의 차이를 비교한다
 
-- 구현할 MCP 서버의 기능
+### 과제 설명
 
-- **도구 1: `add_numbers`** — 두 숫자를 더함
-  - 입력: `a` (number), `b` (number)
-  - 출력: `result` (number)
-  - 제약: 입력은 -1000 ~ 1000 범위
+- 작업 하나를 고른다
+  - 예: 파일 요약
+  - 예: 테스트 코드 생성
+  - 예: 로그 정리
+- 먼저 규칙 없이 요청한다
+- 다음으로 아래와 같은 규칙 파일을 만든 뒤 같은 요청을 다시 한다
 
-- **도구 2: `write_file`** — 파일에 텍스트를 씀
-  - 입력: `path` (string), `content` (string)
-  - 출력: `path` (string), `size` (number)
-  - 제약: `output/` 디렉토리 내부만 쓰기 가능, 최대 1MB
+- GitHub Copilot 기준 최신 실습 방식
+  - Agent mode에서는 instruction 파일로 먼저 비교 실습을 한다
+  - Agent Skills는 공식 문서 기준 Copilot coding agent, Copilot CLI, VS Code Insiders에서 우선 지원되므로, Skills 실습은 **VS Code Insiders 또는 Copilot CLI** 기준으로 수행한다
 
-- **리소스: `project://info`** — 프로젝트 정보를 반환
-  - 내용: 서버 이름, 버전, 실행 시각
+예시 규칙:
 
-### 3.6.2 서버 구조 설계
+```markdown
+# 작업 규칙
 
-- 서버의 디렉토리 구조
-
-```
-practice/chapter3/
-├── code/
-│   ├── 3-5-minimal-mcp-server.py  # 메인 서버
-│   ├── requirements.txt            # 의존성 (없음, 표준 라이브러리만)
-│   └── README.md                   # 실행 방법
-├── data/
-│   └── output/                     # 파일 쓰기 출력 디렉토리
-└── docs/
-    └── server-design.md            # 설계 문서
+- 출력 파일은 반드시 output/ 디렉토리에 저장한다.
+- 결과를 바로 확정하지 말고 핵심 검증 항목 3개를 먼저 적는다.
+- 불확실한 정보는 추측하지 말고 확인 필요라고 표시한다.
+- 실행 후 logs/에 실행 내용을 남긴다.
 ```
 
-- 설계 문서(`server-design.md`)에는 각 도구의 입출력, 제약 조건, 오류 시나리오를 명시
+### 비교 항목
 
-### 3.6.3 핵심 코드 구현
+- 출력 형식이 더 일관적인가
+- 누락이 줄어들었는가
+- 검증 항목이 더 명확해졌는가
+- 안전성이 높아졌는가
 
-- 서버의 핵심 로직
+### GitHub Copilot 실습 예시
 
-```python
-def handle_tools_call(name, arguments):
-    if name == "add_numbers":
-        a, b = arguments["a"], arguments["b"]
-        if not (-1000 <= a <= 1000 and -1000 <= b <= 1000):
-            raise ValueError("Numbers must be in range -1000 to 1000")
-        return {"result": a + b}
+- 규칙 파일 없이
 
-    elif name == "write_file":
-        path = arguments["path"]
-        if not path.startswith("output/"):
-            raise ValueError("Can only write to output/ directory")
-        # 파일 쓰기 로직...
+```text
+output/summary.md에 docs/notes.md 요약을 저장해줘.
 ```
 
-  _전체 코드는 practice/chapter3/code/3-5-minimal-mcp-server.py 참고_
+- 규칙 파일 또는 skill 적용 후
 
-### 3.6.4 테스트 방법
+```text
+docs/agent-rules.md의 규칙을 따르면서 docs/notes.md를 요약해줘.
+반드시 output/summary.md에 저장하고, 검증 항목도 함께 적어줘.
+```
 
-- MCP 서버는 stdin/stdout으로 통신하므로 간단히 테스트 가능
+### Agent Skills 실습 예시
+
+- VS Code Insiders 또는 Copilot CLI를 사용할 수 있다면 다음 구조를 권장함
+
+```text
+.github/skills/doc-summary/
+  SKILL.md
+  examples/
+  templates/
+```
+
+- `SKILL.md`에는 최소한 다음을 적음
+  - 언제 이 skill을 로드할지
+  - 어떤 출력 형식을 사용할지
+  - 검증 항목을 어떻게 적을지
+
+### 실습 확장: custom instructions 추가
+
+- 같은 규칙을 저장소 수준 instruction으로 옮겨 본다
+- 학생은 비교한다
+  - skill로 넣었을 때
+  - instruction으로 넣었을 때
+  - 둘의 역할이 어떻게 다른가
+
+### 실습의 의도
+
+- 이 실습은 "규칙을 적으면 에이전트가 항상 완벽해진다"를 보여주려는 것이 아님
+- 오히려 다음 사실을 체감하게 하려는 것임
+  - 규칙이 없으면 결과가 흔들린다
+  - 규칙을 적으면 검토가 쉬워진다
+
+---
+
+## 3.6 실습 3: 최소 MCP 서버 직접 만들기
+
+### 실습 목표
+
+- 가장 작은 형태의 MCP 서버를 직접 구현하고 테스트한다
+
+### 구현 예시
+
+- 현재 시각 반환
+- 지정 디렉토리 파일 목록 반환
+- 간단한 계산
+- 로컬 메모 읽기
+
+### 설계 원칙
+
+- 이름이 명확해야 함
+- 설명이 구체적이어야 함
+- 입력이 단순해야 함
+- 오류 메시지가 읽기 쉬워야 함
+- 가능한 경우 읽기 전용으로 시작하는 것이 안전함
+
+### 최소 서버의 의미
+
+- 이 실습의 목적은 대형 서버를 만드는 것이 아님
+- 목적은 "에이전트가 도구를 부르는 구조"를 눈으로 확인하는 것
+- 즉, 최소 서버는 개념 증명이자 이후 확장의 출발점임
+
+### 설계 문서에 포함할 항목
+
+- 도구 이름
+- 도구 설명
+- 입력 파라미터
+- 예상 출력
+- 금지하거나 제한할 동작
+
+### GitHub Copilot 활용 방식
+
+- Agent mode에서 다음과 같이 요청한다
+
+```text
+Python으로 최소 MCP 서버 예제를 만들어줘.
+요구사항:
+- 읽기 전용 도구 1개만 제공
+- 입력과 오류 처리가 명확해야 함
+- 테스트 방법도 docs/server-design.md에 적어줘
+```
+
+- 학생은 Copilot이 만든 코드를 그대로 수락하지 말고 다음을 직접 확인해야 함
+  - 도구 설명이 충분히 구체적인가
+  - 입력 검증이 있는가
+  - 잘못된 입력에 대한 오류 메시지가 읽기 쉬운가
+  - 테스트 절차가 실제로 가능한가
+
+---
+
+## 3.7 실습 4: GitHub Copilot CLI plugin 실습
+
+### 실습 목표
+
+- GitHub Copilot에서 plugin이 무엇을 묶는지 실제로 확인한다
+- plugin 안에 skills, MCP 설정, agents를 함께 담을 수 있다는 점을 체험한다
+
+### 왜 CLI plugin을 다루는가
+
+- GitHub Copilot의 plugin은 현재 **Copilot CLI**에서 가장 명확하게 드러남
+- 공식 문서 기준 plugin은 재사용 가능한 설치 단위이며, 여기에 다음 요소를 함께 넣을 수 있음
+  - agents
+  - skills
+  - hooks
+  - MCP server configurations
+
+### 수행 단계
+
+1. `my-plugin/` 디렉토리를 만든다
+2. 루트에 `plugin.json`을 만든다
+3. `skills/` 아래에 간단한 skill 하나를 만든다
+4. 필요하면 `.mcp.json`에 MCP 서버 설정 하나를 넣는다
+5. 로컬에서 plugin을 설치한다
+6. plugin이 실제로 로드되었는지 확인한다
+
+### 권장 구조
+
+```text
+my-plugin/
+  plugin.json
+  skills/
+    doc-summary/
+      SKILL.md
+  .mcp.json
+```
+
+### 최소 `plugin.json` 예시
+
+```json
+{
+  "name": "my-dev-tools",
+  "description": "Week 3 practice plugin",
+  "version": "1.0.0",
+  "skills": "skills/",
+  "mcpServers": ".mcp.json"
+}
+```
+
+### 설치와 확인
 
 ```bash
-cd practice/chapter3
-python3 -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-python3 code/3-5-minimal-mcp-server.py
+copilot plugin install ./my-plugin
+copilot plugin list
 ```
 
-- 서버가 실행되면 수동으로 JSON-RPC 요청을 입력하고 응답을 확인
+- 대화형 세션 안에서는 다음 명령으로 확인 가능
+  - `/plugin list`
+  - `/skills list`
+
+### 실습의 핵심 관찰점
+
+- plugin은 단순한 "추가 기능 하나"가 아님
+- 실제로는 **skills + MCP + agents를 묶어 배포하는 패키지**에 가깝다
+- 따라서 plugin은 MCP나 skill과 경쟁 개념이 아니라 **포장 단위**임
+
+### 왜 이 과제가 필요한가
+
+- 학생은 plugin을 "MCP와 비슷한 것"으로 착각하기 쉬움
+- 이 실습을 통해 다음 관계를 분명히 이해해야 함
+  - MCP = 도구 연결
+  - Skill = 작업 규칙
+  - Plugin = 여러 요소를 묶는 설치 단위
+
+---
+
+## 3.8 실습 5: hooks와 memory를 붙여 보기
+
+### 실습 목표
+
+- 규칙을 문서로만 두지 않고 자동 실행과 지속 문맥으로 확장하는 감각을 익힌다
+
+### hooks 실습 아이디어
+
+- 다음 중 하나를 고른다
+  - 작업 완료 후 `output/` 생성 여부 검사
+  - 결과 파일이 없으면 실패로 간주
+  - 테스트가 없으면 경고 출력
+
+### memory 실습 아이디어
+
+- 다음 문맥 중 하나를 에이전트 기본 기억으로 정리한다
+  - 이 프로젝트의 출력 위치
+  - 기본 검증 절차
+  - 금지 명령 또는 주의 명령
+
+### 관찰 포인트
+
+- 문서 규칙만 둘 때와 hook을 붙였을 때 무엇이 달라지는가
+- 같은 규칙을 memory에 둘 때 세션 간 일관성이 높아지는가
+- skill, instruction, hook, memory가 서로 어떤 역할을 나누는가
+
+---
+
+## 3.9 테스트와 검증
+
+### 3.8.1 AI 없이 단독 테스트하는 법
+
+- MCP 서버는 가능하면 AI 없이도 테스트할 수 있어야 함
+- 이유:
+  - 문제 원인을 분리하기 쉬움
+  - 모델 출력과 서버 오류를 구분할 수 있음
+
+### 3.8.2 정상 입력 / 오류 입력 테스트
+
+- 최소한 두 종류의 테스트가 필요함
+  - 정상 입력
+  - 잘못된 입력
+
+- 예:
+  - 정상 경로 입력 시 파일 목록 반환
+  - 존재하지 않는 경로 입력 시 읽기 쉬운 오류 반환
+
+### 3.8.3 로그와 산출물 남기기
+
+- 다음 파일을 남기는 습관을 들임
+  - 실행 로그
+  - 출력 예시
+  - 설계 문서
+  - 비교 메모
+- 이 기록은 나중에 LangChain, LangGraph 실습으로 넘어갈 때 매우 중요함
+
+---
+
+## 3.10 제출물
+
+- MCP 연결 설정 파일
+- skill 또는 instruction 파일 1개
+- 최소 MCP 서버 코드
+- Copilot CLI plugin 디렉토리 1개
+- hook 또는 자동 검증 설계 메모 1개
+- project memory 초안 1개
+- 테스트 로그
+- 비교 결과 문서
+- 업데이트된 체크리스트
+
+---
+
+## 3.11 핵심 정리
+
+- MCP는 도구 연결이다
+- Skills / Instructions는 작업 규칙이다
+- Plugins / Apps / Connectors는 제품별 확장 표면이다
+- Hooks는 자동 검사와 자동 실행의 연결점이다
+- Memory는 프로젝트 문맥을 지속시키는 계층이다
+- 실제 활용 역량은 이 층들을 함께 다룰 때 생긴다
+- 3주차의 산출물은 이후 LangChain, LangGraph, 멀티에이전트 실습의 입력 자산이 된다
+
+---
+
+## 부록 A. Claude Code로 수행하는 동일 실습
+
+- 본문 실습은 GitHub Copilot 중심으로 진행하지만, 같은 층위를 Claude Code에서도 거의 그대로 실습할 수 있다
+- Claude Code는 터미널 중심 도구이지만 `plugins`, `skills`, `MCP`, `hooks`, `memory`가 비교적 명확하게 드러나므로 구조 학습에 적합하다
+
+### A.1 플러그인 둘러보기
+
+- Claude Code에서 플러그인 UI를 열려면 다음 명령을 사용한다
+
+```text
+/plugin
+```
+
+- 여기서 설치된 플러그인과 마켓플레이스를 확인할 수 있다
+- 공식 Anthropic 플러그인 마켓플레이스는 보통 기본 제공된다
+
+### A.2 플러그인 설치
+
+- 가장 쉬운 방법은 `/plugin` 화면의 `Discover` 탭에서 원하는 플러그인을 찾는 것이다
+- 명령으로 바로 설치할 수도 있다
+
+```text
+/plugin install <plugin-name>@claude-plugins-official
+```
+
+- 설치 후에는 보통 바로 사용할 수 있다
+- 학생은 다음을 확인한다
+  - 플러그인이 실제로 설치되었는가
+  - 새 명령이나 skill이 보이는가
+
+### A.3 플러그인으로 무엇을 묶을 수 있는가
+
+- Claude Code plugin은 보통 다음 요소를 묶어 공유하는 단위다
+  - `skills`
+  - `agents`
+  - `hooks`
+  - `MCP servers`
+- 따라서 plugin은 "추가 기능 하나"라기보다 **재사용 가능한 작업 패키지**에 가깝다
+
+### A.4 직접 플러그인 만들기
+
+- 기본 구조 예시:
+
+```text
+my-first-plugin/
+  .claude-plugin/
+    plugin.json
+  skills/
+    hello/
+      SKILL.md
+```
+
+- 최소 `plugin.json` 예시:
 
 ```json
-{"jsonrpc":"2.0","method":"tools/list","id":1}
+{
+  "name": "my-first-plugin",
+  "description": "Week 3 plugin practice",
+  "version": "1.0.0"
+}
 ```
 
-- 엔터를 누르면 서버가 도구 목록을 출력
-- 실제 클라이언트(Claude Desktop, 커스텀 스크립트)와 통합하려면 MCP 클라이언트 라이브러리를 사용
+- 최소 `SKILL.md` 예시:
 
-### 3.6.5 설계 문서 작성
+```markdown
+---
+description: Summarize a document and save the result to output/
+---
 
-- `docs/server-design.md`에 포함할 내용
-  - 서버 목적과 제공 기능
-  - 각 도구의 상세 스펙 (입출력, 제약, 오류 코드)
-  - 각 리소스의 URI와 내용
-  - 사용 예시와 예상 시나리오
-  - 제한 사항과 향후 개선 방향
-- 설계 문서의 중요성
-  - 팀원이나 미래의 자신이 서버를 이해하는 데 필수적
-  - AI 협업 시 설계 문서를 리소스로 제공하면 AI가 서버를 올바르게 사용 가능
+Read the target document, summarize it, save the result in output/, and list 3 verification checks.
+```
+
+### A.5 로컬에서 플러그인 테스트
+
+- 직접 만든 플러그인은 다음처럼 로컬에서 바로 테스트할 수 있다
+
+```bash
+claude --plugin-dir ./my-first-plugin
+```
+
+- 실행 후 다음처럼 호출해 본다
+
+```text
+/my-first-plugin:hello
+```
+
+- 학생은 다음을 확인한다
+  - 플러그인 명령이 보이는가
+  - skill이 실제로 로드되는가
+  - 출력 형식이 의도대로 유지되는가
+
+### A.6 Skills 실습
+
+- Claude Code 공식 문서 기준 skills는 `SKILL.md` 파일로 확장된다
+- 기본 실습 구조:
+
+```text
+.claude/
+  skills/
+    doc-summary/
+      SKILL.md
+```
+
+- 요청 예시:
+
+```text
+docs/notes.md를 요약해줘.
+가능하면 skill을 활용하고 output/summary.md에 저장해줘.
+```
+
+- 필요하면 직접 호출할 수도 있다
+
+```text
+/doc-summary
+```
+
+### A.7 MCP 서버 연결
+
+- Claude Code에서 MCP 서버를 추가할 때는 다음 흐름을 사용한다
+
+```bash
+claude mcp add github --scope local -- <server-command>
+claude mcp list
+```
+
+- 설정 범위:
+  - `local`: 현재 프로젝트 개인 설정
+  - `project`: 팀 공유 설정
+  - `user`: 여러 프로젝트 공통 설정
+
+- 실습에서는 다음을 확인한다
+  - 서버가 실제로 목록에 보이는가
+  - 도구 호출이 가능한가
+  - 권한 범위가 적절한가
+
+### A.8 Hooks, Settings, Memory
+
+- Claude Code는 plugin, skill, MCP 외에도 다음 계층을 분리해서 볼 수 있다
+  - **Hooks**: 특정 이벤트 전후 자동 실행
+  - **Settings**: 기본 행동 규칙
+  - **Memory**: 프로젝트 맥락 유지
+
+- hooks 실습 예:
+  - 작업 완료 후 로그 저장
+  - 명령 실행 전 경고 출력
+  - 특정 파일 변경 뒤 검사 스크립트 실행
+
+- settings / memory 실습 예:
+  - 출력은 항상 `output/`
+  - 파괴적 명령은 승인 전 금지
+  - 테스트 가능 시 먼저 테스트
+
+### A.9 최소 MCP 서버 실습
+
+- 요청 예시:
+
+```text
+Python으로 읽기 전용 최소 MCP 서버를 만들어줘.
+도구 설명, 입력 검증, 오류 메시지, 테스트 절차를 함께 포함해줘.
+```
+
+- 학생은 다음을 직접 검토한다
+  - 설명이 구체적인가
+  - 입력 검증이 있는가
+  - 오류 메시지가 읽기 쉬운가
+  - 테스트 절차가 실제로 가능한가
+
+### A.10 설치 문제 해결
+
+- 문제가 생기면 다음 순서로 점검한다
+  1. `/plugin`에서 설치 상태 확인
+  2. 플러그인 이름과 마켓플레이스 이름이 정확한지 확인
+  3. 로컬 개발 중이면 `claude --plugin-dir ...`로 직접 테스트
+  4. MCP가 함께 묶여 있다면 `claude mcp list`로 서버 등록 상태 확인
+  5. settings, hooks, skills 경로가 구조와 맞는지 확인
+
+- 무조건 `~/.claude`를 지우는 방식은 마지막 수단으로만 사용한다
+
+### A.11 주의사항
+
+- 영상에서 자주 보이는 다음 표현은 공식 기능으로 단정하면 안 된다
+  - `Remote Control`
+  - `Ralph Loop`
+- 커뮤니티 플러그인, 외부 도구, 개인 워크플로우일 가능성이 있으므로 공식 강의 본문에는 넣지 않는 편이 안전하다
+
+### A.12 Claude Code 부록의 의도
+
+- 같은 과제를 Copilot과 Claude Code에서 각각 수행해 보면 차이가 잘 드러난다
+  - Copilot: IDE 중심, Copilot Chat + CLI plugin 쪽이 명확
+  - Claude Code: 터미널 중심, MCP·Skills·Plugins·Hooks·Memory가 한 체계 안에서 잘 드러남
+- 부록의 목적은 우열 비교가 아니라 **도구별 작업 감각 차이**를 체험하는 것임
 
 ---
 
-## 핵심 정리
+## 부록 B. ChatGPT / Codex로 수행하는 동일 실습
 
-- **MCP(Model Context Protocol)**: AI와 외부 도구/데이터 간 표준화된 통신 프로토콜. Anthropic이 2024년 11월 공개했고, 2025년 말 AAIF 설립 발표로 거버넌스가 강화됨
-- **스펙 진화**: 2024-11-05(초기) → 2025-03-26(Streamable HTTP) → 2025-06-18(outputSchema, Elicitation) → 2025-11-25(Tasks, Server Discovery)
-- **도구(Tool)**: AI가 호출할 수 있는 함수, 명확한 입출력과 제약 조건을 가져야 함
-- **리소스(Resource)**: AI가 참조할 수 있는 컨텍스트 데이터, 읽기 전용 정보 제공
-- **STDIO 통신**: 로컬 환경에서 간단하고 안전한 프로세스 간 통신 방식
-- **JSON-RPC 2.0**: MCP가 사용하는 표준 원격 프로시저 호출 프로토콜
-- **설계 원칙**: 단일 책임, 명확한 타입, 적절한 제약, 구체적인 오류 메시지
+- OpenAI 쪽은 이름이 조금 다르지만, 같은 층위로 매핑할 수 있다
+  - MCP = 외부 도구 연결
+  - Skills = Codex app/CLI/IDE에서의 skill 또는 rules 계층
+  - Plugin에 가까운 개념 = ChatGPT Apps
+
+### B.1 ChatGPT에서의 "plugin"은 지금 무엇인가
+
+- 2025년 12월부터 OpenAI는 connectors를 **Apps**로 통합해 안내함
+- 따라서 ChatGPT 쪽에서 plugin과 가장 비슷한 현재 개념은 **Apps**라고 보는 편이 정확함
+- 학생은 여기서 "ChatGPT 안에 외부 기능을 붙인다"는 감각을 익히면 된다
+
+### B.2 ChatGPT Apps 실습
+
+- ChatGPT에서 앱 디렉터리를 열고 앱 하나를 연결한다
+- 권장 실습:
+  1. 앱 디렉터리에서 GitHub나 문서 검색 계열 앱을 찾는다
+  2. 연결 가능한 앱을 활성화한다
+  3. 다음과 같이 요청한다
+
+```text
+연결된 앱을 사용해서 이 저장소 또는 연결된 문서에서 week3 실습과 관련된 정보를 찾아 요약해줘.
+```
+
+- 관찰 포인트
+  - 앱이 어떤 정보를 검색·참조하는가
+  - 단순 채팅과 무엇이 다른가
+  - ChatGPT Apps가 MCP와 같은 표준인지, 아니면 제품 표면인지 구분할 수 있는가
+
+### B.3 ChatGPT의 MCP 실습
+
+- OpenAI 공식 문서 기준 ChatGPT Apps와 API 통합은 MCP 서버와 연결될 수 있다
+- 수업에서는 구현보다 개념 구분에 집중한다
+- 핵심 메시지:
+  - ChatGPT Apps는 사용자 표면
+  - MCP는 그 뒤쪽의 도구 연결 표준일 수 있다
+
+### B.4 Codex에서의 Skills / Rules 실습
+
+- Codex는 ChatGPT 계정으로 사용하는 코딩 에이전트이며, terminal, IDE, app, cloud 표면을 함께 제공한다
+- 공식 안내 기준 Codex app은 skills, automations, git 기능을 제공한다
+- 3주차 실습에서는 다음과 같이 수행한다
+
+```text
+이 저장소를 읽고 docs/notes.md를 요약해줘.
+반드시 output/summary.md에 저장하고, 검증 항목 3개를 함께 적어줘.
+```
+
+- 그리고 규칙을 준 뒤 다시 비교한다
+
+```text
+다음 규칙을 지켜줘:
+- 출력은 output/에 저장
+- 검증 항목 3개 작성
+- 불확실한 내용은 추측하지 말 것
+이 규칙을 지키면서 docs/notes.md를 다시 요약해줘.
+```
+
+### B.5 Codex의 MCP 실습
+
+- Codex 관련 공식 문서 네비게이션에는 MCP와 Skills가 별도 구성 항목으로 존재한다
+- 수업에서는 다음 수준까지 실습하는 것을 목표로 한다
+  - Codex가 MCP 서버를 쓰는 환경이라는 점을 이해한다
+  - 같은 작업을 "도구 없이"와 "MCP 연결 후" 비교한다
+  - 필요한 경우 API 쪽에서는 MCP server 문서와 Responses tool 문서를 참조한다
+
+### B.6 Codex / ChatGPT에서 추가로 볼 것
+
+- **Apps**
+  - ChatGPT 안에서 기능을 붙이는 현재형 표면
+- **Rules / Skills**
+  - 반복 작업 규칙을 고정하는 계층
+- **Automations**
+  - 반복 작업을 자동 실행 흐름으로 옮기는 계층
+- **Memory**
+  - 지속 선호와 문맥을 유지하는 계층
+
+### B.7 OpenAI 부록의 의도
+
+- OpenAI 표면은 이름이 바뀌기 쉬우므로 학생이 가장 먼저 익혀야 할 것은 메뉴 이름이 아니라 구조임
+- 이 부록의 핵심 대응 관계:
+  - GitHub Copilot plugin ↔ ChatGPT Apps
+  - GitHub Skills ↔ Codex skills / rules
+  - GitHub hooks ↔ Codex automations
+  - GitHub memory ↔ OpenAI memory
+  - GitHub MCP ↔ OpenAI MCP integrations
+- 목적은 특정 제품 조작법 암기가 아니라, **동일한 실습 구조를 다른 벤더 표면으로 번역하는 능력**을 기르는 것임
 
 ---
 
-## 실습 파일 요약
+## 참고 자료
 
-| 파일 | 경로 | 설명 |
-|:---|:---|:---|
-| 최소 서버 | practice/chapter3/code/3-2-minimal-server.py | 현재 시각 반환 도구를 제공하는 최소 MCP 서버 |
-| 입력 검증 | practice/chapter3/code/3-3-tool-validation.py | 파일 읽기 도구의 입력 검증 예시 |
-| 리소스 서버 | practice/chapter3/code/3-4-resource-server.py | 정적/동적 리소스 제공 예시 |
-| 완전한 서버 | practice/chapter3/code/3-5-minimal-mcp-server.py | 도구 2개 + 리소스 1개를 제공하는 완전한 서버 |
-| 설계 문서 | practice/chapter3/docs/server-design.md | MCP 서버 설계 문서 템플릿 |
+- GitHub Copilot agent mode: https://docs.github.com/en/copilot/how-tos/chat/asking-github-copilot-questions-in-your-ide
+- GitHub MCP and coding agent: https://docs.github.com/en/copilot/concepts/agents/coding-agent/mcp-and-coding-agent
+- GitHub Copilot CLI plugins overview: https://docs.github.com/copilot/concepts/agents/copilot-cli/about-cli-plugins
+- GitHub Copilot CLI plugin creation: https://docs.github.com/copilot/how-tos/copilot-cli/customize-copilot/plugins-creating
+- GitHub Copilot CLI plugin install: https://docs.github.com/en/enterprise-cloud%40latest/copilot/how-tos/copilot-cli/customize-copilot/plugins-finding-installing
+- GitHub Agent Skills: https://docs.github.com/en/copilot/concepts/agents/about-agent-skills
+- GitHub custom instructions: https://docs.github.com/en/copilot/how-tos/custom-instructions/add-repository-instructions
+- Claude Code overview: https://docs.anthropic.com/en/docs/claude-code/overview
+- Claude Code IDE integration: https://docs.anthropic.com/en/docs/claude-code/ide-integrations
+- Claude Code MCP: https://docs.anthropic.com/en/docs/claude-code/mcp
+- Claude Code Skills: https://docs.anthropic.com/en/docs/claude-code/slash-commands
+- Claude Code plugins: https://code.claude.com/docs/en/plugins
+- Claude Code settings: https://docs.anthropic.com/en/docs/claude-code/settings
+- Claude Code hooks: https://docs.anthropic.com/en/docs/claude-code/hooks
+- Claude Code memory: https://docs.anthropic.com/en/docs/claude-code/memory
+- OpenAI MCP docs: https://developers.openai.com/api/docs/mcp
+- OpenAI tools docs: https://developers.openai.com/api/docs/guides/tools
+- Apps in ChatGPT: https://help.openai.com/en/articles/11487775-connectors-in-chatgpt
+- Codex in ChatGPT plans: https://help.openai.com/en/articles/11369540/
+- Introducing the Codex app: https://openai.com/index/introducing-the-codex-app/
 
 ---
 
-## 다음 장 예고
+## 다음 주 예고
 
-- 4장에서 학습할 내용
-  - 이 장에서 학습한 MCP 개념을 토대로 실제 외부 API를 래핑하는 MCP 서버를 구현
-  - OAuth 2.1 인증과 A2A 프로토콜 개요도 함께 학습
-
----
-
-## 참고문헌
-
-Anthropic. (2024). Model Context Protocol Documentation. https://modelcontextprotocol.io/
-
-Anthropic. (2025). MCP Specification — 2025-11-25. https://spec.modelcontextprotocol.io/
-
-AAIF. (2025). AI Alliance & Interoperability Foundation. Linux Foundation. https://www.linuxfoundation.org/press/linux-foundation-launches-ai-alliance-and-interoperability-foundation
-
-OpenAI. (2025). New tools for building agents. *OpenAI*. https://openai.com/index/new-tools-for-building-agents/
-
-OpenAI. (2025). New tools and features in the Responses API. *OpenAI*. https://openai.com/index/new-tools-and-features-in-the-responses-api/
-
-OpenAI. (2026). Building MCP servers for ChatGPT and API integrations. *OpenAI API Docs*. https://platform.openai.com/docs/mcp
-
-OpenAI. (2026). ChatGPT developer mode. *OpenAI API Docs*. https://platform.openai.com/docs/guides/developer-mode
-
-Google. (2025). Introducing Gemini CLI. *Google Blog*. https://blog.google/innovation-and-ai/technology/developers-tools/introducing-gemini-cli-open-source-ai-agent/
-
-JSON-RPC Working Group. (2010). JSON-RPC 2.0 Specification. https://www.jsonrpc.org/specification
-
-Python Software Foundation. (2024). json — JSON encoder and decoder. Python 3.13 Documentation. https://docs.python.org/3/library/json.html
+- 4주차에서는 MCP 서버를 더 실전적으로 다룬다
+- 인증, 실패 처리, 로깅, 테스트 가능한 구조를 갖춘 서버 설계로 발전시킨다
+- 단순 연결에서 끝나지 않고, 실제 운영 가능한 도구 계층을 만드는 방향으로 확장한다
