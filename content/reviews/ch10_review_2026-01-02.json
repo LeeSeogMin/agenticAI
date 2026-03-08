@@ -1,0 +1,93 @@
+{
+  "chapter": 10,
+  "input_path": "/Users/callii/Documents/agenticAI/docs/ch10.md",
+  "generated_on": "2026-01-02",
+  "providers": [
+    {
+      "provider": "openai",
+      "model": "gpt-4o",
+      "ok": true,
+      "error": null,
+      "review": {
+        "summary": "이 교재는 대형 언어 모델(LLM)의 환각 문제를 이해하고, 이를 탐지하고 방지하기 위한 검증 전략을 설명합니다. 교차검증과 출처 일치 검증을 통해 신뢰할 수 있는 생성 파이프라인을 구축하는 방법을 다루며, 품질 게이트를 통해 검증 실패 시 재시도 및 사람 승인 워크플로우를 구현하는 방법을 제시합니다. 최신 연구와 기술을 반영하고 있으며, 실습 코드 참조 형식이 잘 제공되어 있습니다.",
+        "critical_issues": [],
+        "major_issues": [],
+        "minor_suggestions": [
+          {
+            "title": "긴 코드 블록",
+            "detail": "본문에 3~5줄을 넘는 코드 블록이 포함되어 있습니다.",
+            "location_hint": "10.2 교차검증 전략 - Self-Consistency 코드 블록"
+          },
+          {
+            "title": "실습 코드 참조 형식",
+            "detail": "실습 코드 참조 형식이 잘 제공되어 있습니다.",
+            "location_hint": "10.6 실습: 검증 워크플로우 구현"
+          }
+        ]
+      }
+    },
+    {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-20250514",
+      "ok": true,
+      "error": null,
+      "review": {
+        "summary": "이 장은 LLM 환각 방지와 검증 파이프라인에 대한 포괄적인 내용을 다루고 있습니다. 환각의 유형과 원인, Self-Consistency와 Chain-of-Verification 같은 교차검증 전략, 출처 일치 검증, 품질 게이트 설계 등을 체계적으로 설명합니다. LangGraph를 활용한 검증 워크플로우 구현과 실패 사례 분석까지 실무적 접근을 제공합니다. 전반적으로 기술적 정확성과 최신성을 잘 유지하고 있으나, 일부 참고문헌과 코드 블록 관련 개선이 필요합니다.",
+        "critical_issues": [
+          {
+            "title": "존재하지 않는 참고문헌",
+            "detail": "LangChain Human-in-the-loop 문서 링크(https://docs.langchain.com/oss/python/langchain/human-in-the-loop)가 실제로는 존재하지 않습니다. LangChain 공식 문서 구조에서 해당 경로는 유효하지 않습니다.",
+            "location_hint": "참고문헌 섹션 마지막 항목"
+          }
+        ],
+        "major_issues": [
+          {
+            "title": "Chain-of-Verification 논문 정보 부정확",
+            "detail": "Chain-of-Verification 논문이 'ACL Findings 2024'로 표기되어 있으나, 실제로는 2023년 arXiv 논문이며 아직 ACL에 게재되지 않았습니다. 또한 Meta AI가 아닌 Facebook AI Research 소속 연구입니다.",
+            "location_hint": "10.2절 Chain-of-Verification 설명 부분"
+          },
+          {
+            "title": "Semantic Entropy 논문 출판 정보 오류",
+            "detail": "Semantic Entropy 논문이 Nature에 2024년 게재되었다고 하나, 실제로는 아직 Nature에 게재되지 않았으며 arXiv 프리프린트 상태입니다.",
+            "location_hint": "10.1절 환각 발생 원인 설명 부분"
+          }
+        ],
+        "minor_suggestions": [
+          {
+            "title": "긴 코드 블록 존재",
+            "detail": "여러 코드 블록이 3-5줄을 초과합니다. 실습 코드 참조 형식으로 대체하는 것이 좋겠습니다.",
+            "location_hint": "10.2절과 10.5절의 코드 예시들"
+          },
+          {
+            "title": "실습 코드 참조 형식 누락",
+            "detail": "10.5절에서 일부 코드에 대해 '전체 코드는 practice/chapter10/code/파일명.py 참고' 형식이 누락되어 있습니다.",
+            "location_hint": "10.5절 검증 파이프라인 구현 부분"
+          },
+          {
+            "title": "수치 데이터의 출처 불명확",
+            "detail": "표 10.2의 구체적인 점수들(0.293, 0.295 등)이 실제 실험 결과인지 예시 데이터인지 명확하지 않습니다. 실제 실험이라면 재현 가능한 조건을 명시해야 합니다.",
+            "location_hint": "10.6절 실행 결과 표"
+          }
+        ]
+      }
+    },
+    {
+      "provider": "grok",
+      "model": "grok-4-1-fast-reasoning",
+      "ok": true,
+      "error": null,
+      "review": {
+        "summary": "제10장은 LLM 환각의 이해, 교차검증(Self-Consistency, CoVe), 출처 일치 검증, 품질 게이트, LangGraph 기반 검증 파이프라인 구현을 다루며 내용이 사실적이고 최신(2026년 기준 LangGraph, gpt-4o-mini 등)이다. 참고문헌은 모두 실제 arXiv, Nature, LangChain 문서로 정확하다. 코드 예시는 작동 가능하나 일부 블록이 길어 minor 개선 필요하며, 실습 참조 형식은 적절하다.",
+        "critical_issues": [],
+        "major_issues": [],
+        "minor_suggestions": [
+          {
+            "title": "긴 코드 블록 사용",
+            "detail": "10.5 상태 정의의 VerificationState 클래스와 10.6 핵심 구현의 graph.add_node 블록이 3~5줄을 초과하여 교재 가독성을 저하시킬 수 있음. 전체 코드는 실습 참조로 유도하니 요약 코드로 대체 권장.",
+            "location_hint": "10.5 검증 파이프라인 구현 (VerificationState), 10.6 실습: 핵심 구현 (graph.add_node)"
+          }
+        ]
+      }
+    }
+  ]
+}
