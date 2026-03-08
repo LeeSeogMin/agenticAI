@@ -13,8 +13,17 @@ __pycache__/
 
 # Project specific
 _archive/
+.claude/
 ms-word/
 scripts/
 강의자료/
-lecture/
+lecture_orgin/
 practice/chapter*/logs/
+contents.md
+context.md
+copilot.md
+todo.md
+checklists/
+schema/
+CLAUDE.md
+README.md
